@@ -382,6 +382,12 @@ tbody tr:last-child td { border-bottom: 0; }
   letter-spacing: 0.06em;
   margin-bottom: 8px;
 }
+.span-d { border-radius: 4px; }
+.span-d > .trace-row { cursor: default; }
+details.span-d > summary.trace-row { cursor: pointer; list-style: none; }
+details.span-d > summary.trace-row::-webkit-details-marker { display: none; }
+details.span-d[open] > summary.trace-row { background: color-mix(in oklch, var(--panel-2), var(--panel) 10%); }
+details.span-d > summary.trace-row:hover { background: color-mix(in oklch, var(--panel-2), var(--panel) 20%); }
 .trace-row {
   display: grid;
   grid-template-columns: minmax(140px, 0.9fr) minmax(0, 2fr) 56px;
@@ -389,6 +395,31 @@ tbody tr:last-child td { border-bottom: 0; }
   align-items: center;
   height: 22px;
   font-size: 12px;
+}
+.span-attrs {
+  padding: 6px 8px 10px 16px;
+  margin: 2px 0 6px;
+  border-left: 2px solid color-mix(in oklch, var(--line-strong), transparent 30%);
+  font-size: 12px;
+}
+.attr-row { display: grid; grid-template-columns: minmax(120px, 220px) 1fr; column-gap: 12px; padding: 2px 0; }
+.attr-k { color: var(--soft); overflow-wrap: anywhere; }
+.attr-v { color: var(--text); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.attr-io { margin: 4px 0; }
+.attr-io .attr-k { display: block; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px; }
+.attr-pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--panel), black 8%);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .trace-label {
   overflow: hidden;

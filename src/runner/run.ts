@@ -5,7 +5,7 @@
 import { resolve as resolvePath } from "node:path";
 import { createSandbox } from "../sandbox/resolve.ts";
 import { createTraceReceiver, type TraceReceiver } from "../o11y/otlp/receiver.ts";
-import { selectTraceSpans } from "../o11y/otlp/select.ts";
+import { selectTraceSpans, enrichTraceWithIO } from "../o11y/otlp/select.ts";
 import { createEvalContext } from "../context/context.ts";
 import { EvalRequirementFailed, EvalSkipped, TurnFailed } from "../context/control-flow.ts";
 import { computeVerdict } from "../scoring/verdict.ts";
@@ -340,7 +340,8 @@ async function runAttempt(
       await receiver.settle(250, 1500);
       const spans = receiver.collect();
       if (spans.length) {
-        trace = selectTraceSpans(spans);
+        // 选语义 span,再按 call_id 把 transcript 的工具入参/出参 join 上去(span 自身不带命令文本)。
+        trace = enrichTraceWithIO(selectTraceSpans(spans), facts.toolCalls);
         const note = spans.length > trace.length ? ` → 留 ${trace.length}(按语义)` : "";
         log(`trace:${spans.length} span${note}`);
       }

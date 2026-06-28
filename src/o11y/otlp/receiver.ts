@@ -3,6 +3,7 @@
 // 跑完由运行器一次性 collect 挂到 EvalResult.trace。只认 POST .../v1/traces。
 
 import { createServer } from "node:http";
+import { gunzipSync } from "node:zlib";
 import type { TraceSpan } from "../../types.ts";
 import { parseOtlpTraces } from "./parse.ts";
 
@@ -30,7 +31,17 @@ export async function createTraceReceiver(): Promise<TraceReceiver> {
     req.on("end", () => {
       const ct = req.headers["content-type"] ?? "";
       try {
-        const parsed = parseOtlpTraces(Buffer.concat(chunks), ct);
+        let body = Buffer.concat(chunks);
+        // OTLP 导出端可能 gzip(OTEL_EXPORTER_OTLP_COMPRESSION 或默认开)。按 header 或 gzip 魔数解压。
+        const ce = String(req.headers["content-encoding"] ?? "");
+        if (ce.includes("gzip") || (body[0] === 0x1f && body[1] === 0x8b)) {
+          try {
+            body = gunzipSync(body);
+          } catch {
+            // 不是合法 gzip 就按原样试
+          }
+        }
+        const parsed = parseOtlpTraces(body, ct);
         if (parsed.length) {
           spans.push(...parsed);
           lastAt = Date.now();

@@ -1,27 +1,73 @@
 // 默认本地工件报告器:给 `fastevals view` 提供稳定的离线输入。
+//
+// 布局(每 eval-attempt 一个文件夹,重数据分文件;summary.json 只留榜单元数据):
+//   .fastevals/<run>/
+//     summary.json                         # run 元数据 + 各 result 的判决/usage/断言/引用(瘦身)
+//     <evalId>/<agent>/<model>/a<attempt>/
+//       events.json  trace.json  o11y.json  diff.json
+// view 读 summary.json 渲染榜单,展开某条 trace 时再按需 fetch 它的 trace.json。
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Reporter, RunSummary } from "../../types.ts";
+import type { EvalResult, Reporter, RunSummary } from "../../types.ts";
+
+/** 一个 attempt 的工件子目录(相对 run 根):<evalId>/<agent>/<model>/a<attempt>。 */
+function attemptDir(r: EvalResult): string {
+  const safe = (s: string) => s.replace(/[^\w.@-]/g, "_");
+  // evalId 里的 / 保留作目录层级,其余危险字符替换。
+  const id = r.id.replace(/[^\w./@-]/g, "_");
+  return `${id}/${safe(r.agent)}/${safe(r.model ?? "default")}/a${r.attempt}`;
+}
+
+/** summary.json 用的瘦身结果:去掉大数组(events/trace/o11y/diff),换成目录引用 + 存在标记。 */
+function slimResult(r: EvalResult): EvalResult {
+  const { events, o11y, trace, diff, rawTranscript, ...rest } = r;
+  void events;
+  void o11y;
+  void trace;
+  void diff;
+  void rawTranscript;
+  return {
+    ...rest,
+    artifactsDir: attemptDir(r),
+    hasTrace: !!(trace && trace.length),
+    hasEvents: !!(events && events.length),
+  };
+}
 
 export function Artifacts(root = ".fastevals"): Reporter {
   let outputDir = "";
+  const ensureDir = async (): Promise<void> => {
+    if (!outputDir) outputDir = join(root, safeTimestamp(new Date()));
+    await mkdir(outputDir, { recursive: true });
+  };
 
   return {
     async onRunStart() {
       outputDir = join(root, safeTimestamp(new Date()));
       await mkdir(outputDir, { recursive: true });
     },
+
+    // 每条结果一出来就把它的重数据落到自己的文件夹(增量、互不影响)。
+    async onEvalComplete(result) {
+      await ensureDir();
+      const dir = join(outputDir, attemptDir(result));
+      await mkdir(dir, { recursive: true });
+      const writes: Promise<unknown>[] = [];
+      if (result.events?.length)
+        writes.push(writeFile(join(dir, "events.json"), JSON.stringify(result.events), "utf-8"));
+      if (result.trace?.length)
+        writes.push(writeFile(join(dir, "trace.json"), JSON.stringify(result.trace), "utf-8"));
+      if (result.o11y) writes.push(writeFile(join(dir, "o11y.json"), JSON.stringify(result.o11y), "utf-8"));
+      if (result.diff) writes.push(writeFile(join(dir, "diff.json"), JSON.stringify(result.diff), "utf-8"));
+      await Promise.all(writes);
+    },
+
+    // run 结束写瘦身 summary.json(只含榜单要的字段 + 工件引用)。
     async onRunComplete(summary) {
-      if (!outputDir) outputDir = join(root, safeTimestamp(new Date(summary.startedAt)));
-      await mkdir(outputDir, { recursive: true });
-      const enriched: RunSummary = { ...summary, outputDir };
-      await writeFile(join(outputDir, "summary.json"), JSON.stringify(enriched, null, 2), "utf-8");
-      await writeFile(
-        join(outputDir, "results.jsonl"),
-        summary.results.map((r) => JSON.stringify(r)).join("\n") + (summary.results.length ? "\n" : ""),
-        "utf-8",
-      );
+      await ensureDir();
+      const slim: RunSummary = { ...summary, outputDir, results: summary.results.map(slimResult) };
+      await writeFile(join(outputDir, "summary.json"), JSON.stringify(slim, null, 2), "utf-8");
     },
   };
 }

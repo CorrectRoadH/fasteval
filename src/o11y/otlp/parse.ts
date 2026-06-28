@@ -146,8 +146,12 @@ class Reader {
   skip(wire: number): void {
     if (wire === 0) this.varint();
     else if (wire === 1) this.pos += 8;
-    else if (wire === 2) this.pos += Number(this.varint());
-    else if (wire === 5) this.pos += 4;
+    else if (wire === 2) {
+      // 注意:必须先读完 length varint(它会推进 pos),再加 len。
+      // 写成 `this.pos += Number(this.varint())` 有 bug:+= 会先取旧 pos,丢掉 length 前缀字节 → 错位。
+      const len = Number(this.varint());
+      this.pos += len;
+    } else if (wire === 5) this.pos += 4;
   }
 }
 

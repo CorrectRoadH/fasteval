@@ -412,6 +412,13 @@ export interface EvalResult {
   trace?: TraceSpan[];
   diff?: DiffData;
   rawTranscript?: string;
+  // ── 拆分工件的引用(Artifacts 报告器写 summary.json 时填;view 按需懒加载)──
+  /** 本 attempt 工件目录(相对 run 根),下有 events/trace/o11y/diff.json。 */
+  artifactsDir?: string;
+  /** view 拼好的工件目录(相对 view 输入根,供前端 fetch);loadSummaries 注入。 */
+  artifactBase?: string;
+  hasTrace?: boolean;
+  hasEvents?: boolean;
 }
 
 export interface RunSummary {

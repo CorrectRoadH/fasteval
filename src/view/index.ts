@@ -1,9 +1,9 @@
 // 本地结果查看器:读 summary.json,按 experiment 聚合,注入 HTML 模板。
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import type { EvalResult, RunSummary, Usage, Verdict } from "../types.ts";
 
 export interface ViewOptions {
@@ -71,12 +71,18 @@ export async function buildView(opts: ViewOptions = {}): Promise<string> {
 
 export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServer> {
   const input = opts.input;
+  const root = viewRoot(input);
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       if (url.pathname === "/healthz") {
         res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
         res.end("ok");
+        return;
+      }
+      // 按需提供拆分工件(trace.json / events.json / …),前端展开时 fetch。
+      if (url.pathname === "/artifact") {
+        await serveArtifact(root, url.searchParams.get("p") ?? "", res);
         return;
       }
       if (url.pathname !== "/") {
@@ -103,6 +109,29 @@ export async function startViewServer(opts: ViewOptions = {}): Promise<ViewServe
         server.close((err) => (err ? reject(err) : resolveClose()));
       }),
   };
+}
+
+/** 安全地把 root 下的工件文件吐回去(限定 .json,且解析后必须仍在 root 内)。 */
+async function serveArtifact(
+  root: string,
+  rel: string,
+  res: import("node:http").ServerResponse,
+): Promise<void> {
+  const abs = resolve(root, rel);
+  const within = abs === root || abs.startsWith(root + "/");
+  if (!within || !rel.endsWith(".json")) {
+    res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+    res.end("bad artifact path");
+    return;
+  }
+  try {
+    const body = await readFile(abs, "utf-8");
+    res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(body);
+  } catch {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("artifact not found");
+  }
 }
 
 async function renderHtml(loaded: LoadedSummary[]): Promise<string> {
@@ -159,23 +188,49 @@ async function listen(server: Server, preferredPort: number): Promise<number> {
   throw new Error(`No available port near ${preferredPort}`);
 }
 
+/** 服务/解析工件的根目录:输入是目录就用它,是文件就用其所在目录。 */
+function viewRoot(input?: string): string {
+  const t = resolve(input ?? ".fastevals");
+  try {
+    return statSync(t).isFile() ? dirname(t) : t;
+  } catch {
+    return t;
+  }
+}
+
 async function loadSummaries(input?: string): Promise<LoadedSummary[]> {
   const target = resolve(input ?? ".fastevals");
   if (!existsSync(target)) return [];
+  const root = viewRoot(input);
   const s = await stat(target);
-  if (s.isFile()) return [{ path: target, summary: await readSummary(target) }];
+  if (s.isFile()) {
+    const summary = await readSummary(target);
+    attachArtifactBase(summary, target, root);
+    return [{ path: target, summary }];
+  }
 
   const candidates = await findSummaryFiles(target);
   const loaded: LoadedSummary[] = [];
   for (const path of candidates) {
     try {
-      loaded.push({ path, summary: await readSummary(path) });
+      const summary = await readSummary(path);
+      attachArtifactBase(summary, path, root);
+      loaded.push({ path, summary });
     } catch {
       // Ignore unrelated JSON files under .fastevals.
     }
   }
   loaded.sort((a, b) => b.summary.startedAt.localeCompare(a.summary.startedAt));
   return loaded;
+}
+
+/** 给每条 result 拼出相对 view 根的工件目录(前端据此 fetch trace.json 等)。 */
+function attachArtifactBase(summary: RunSummary, summaryPath: string, root: string): void {
+  const runDir = dirname(summaryPath);
+  for (const r of summary.results) {
+    if (!r.artifactsDir) continue;
+    r.artifactBase = relative(root, join(runDir, r.artifactsDir)).split(/[\\/]/).join("/");
+  }
 }
 
 async function findSummaryFiles(dir: string): Promise<string[]> {

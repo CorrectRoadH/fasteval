@@ -107,8 +107,9 @@
           const statusClass = r.verdict === "passed" ? "good" : r.verdict === "failed" ? "bad" : "warn";
           const reason = r.error || bad;
           const item = `<div class="eval-item"><span class="${statusClass}">${r.verdict}</span><span class="eval-id">${escapeHtml(r.id)}</span><span class="assertions">${reason ? escapeHtml(reason) : '<span class="reason-empty">all assertions passed</span>'}</span><span class="num">${formatDuration(r.durationMs)}</span><span class="num">${formatTokens(totalTokens(r.usage))}</span><span class="num">${formatCost(r.estimatedCostUSD)}</span><span class="num">#${r.attempt}</span></div>`;
-          const trace = (r.trace && r.trace.length)
-            ? `<details class="trace-details"><summary>trace · ${r.trace.length} span${r.trace.length === 1 ? "" : "s"}</summary>${renderTrace(r.trace)}</details>`
+          // trace 按需懒加载:展开时才 fetch 该 eval 的 trace.json(见下方 toggle 处理)。
+          const trace = (r.hasTrace && r.artifactBase)
+            ? `<details class="trace-details trace-lazy" data-src="${escapeAttr(r.artifactBase + "/trace.json")}"><summary>trace</summary><div class="trace-slot"><div class="trace-span-meta">loading…</div></div></details>`
             : "";
           return item + trace;
         })
@@ -178,9 +179,38 @@
         const tone = s.status === "error" ? "bad" : "";
         const dur = formatDuration(s.endMs - s.startMs);
         const indent = depthOf(s) * 12;
-        return `<div class="trace-row"><div class="trace-label" style="padding-left:${indent}px" title="${escapeAttr(s.name)}">${escapeHtml(s.name)}</div><div class="trace-track"><div class="trace-bar ${tone}" style="left:${left}%;width:${width}%"></div></div><div class="trace-dur num">${dur}</div></div>`;
+        const detail = renderSpanAttrs(s.attributes);
+        const row = `<summary class="trace-row"><div class="trace-label" style="padding-left:${indent}px" title="${escapeAttr(s.name)}">${escapeHtml(s.name)}</div><div class="trace-track"><div class="trace-bar ${tone}" style="left:${left}%;width:${width}%"></div></div><div class="trace-dur num">${dur}</div></summary>`;
+        // 有属性才做成可展开的 <details>;没有就一行(summary 单独也能渲染)。
+        return detail
+          ? `<details class="span-d">${row}${detail}</details>`
+          : `<div class="span-d">${row}</div>`;
       }).join("");
-      return `<div class="trace"><div class="trace-span-meta">total ${formatDuration(total)}</div>${rows}</div>`;
+      return `<div class="trace"><div class="trace-span-meta">total ${formatDuration(total)} · ${spans.length} spans · click a row for details</div>${rows}</div>`;
+    }
+    // 哪些属性是纯内部噪声、详情里不显示。
+    const HIDE_ATTR = /^(code\.|thread\.|target$|busy_ns$|idle_ns$|rpc\.|app_server\.)/;
+    function renderSpanAttrs(attrs) {
+      if (!attrs) return "";
+      const keys = Object.keys(attrs).filter((k) => !HIDE_ATTR.test(k));
+      if (!keys.length) return "";
+      // io.input / io.output 用代码块突出;其余按 key:value 列。
+      const io = keys.filter((k) => k.startsWith("io."));
+      const rest = keys.filter((k) => !k.startsWith("io.")).sort();
+      const ioHtml = io.map((k) => {
+        const label = k.replace(/^io\./, "");
+        const v = attrs[k];
+        const isBlock = label === "input" || label === "output";
+        return isBlock
+          ? `<div class="attr-io"><span class="attr-k">${escapeHtml(label)}</span><pre class="attr-pre">${escapeHtml(String(v))}</pre></div>`
+          : `<div class="attr-row"><span class="attr-k">${escapeHtml(label)}</span><span class="attr-v">${escapeHtml(String(v))}</span></div>`;
+      }).join("");
+      const restHtml = rest.map((k) => {
+        const v = attrs[k];
+        const vs = typeof v === "object" ? JSON.stringify(v) : String(v);
+        return `<div class="attr-row"><span class="attr-k">${escapeHtml(k)}</span><span class="attr-v">${escapeHtml(vs)}</span></div>`;
+      }).join("");
+      return `<div class="span-attrs">${ioHtml}${restHtml}</div>`;
     }
     function formatConfigValue(value) {
       if (value === null) return "null";
@@ -239,6 +269,25 @@
       state.query = event.target.value;
       render();
     });
+
+    // trace 懒加载:某条 trace <details> 第一次展开时 fetch 它的 trace.json 再渲染瀑布图。
+    // 用 capture 监听 toggle(toggle 不冒泡),静态报告(无 server)fetch 失败给出提示。
+    document.addEventListener("toggle", async (event) => {
+      const d = event.target;
+      if (!(d instanceof HTMLElement) || !d.classList.contains("trace-lazy")) return;
+      if (!d.open || d.dataset.loaded) return;
+      d.dataset.loaded = "1";
+      const slot = d.querySelector(".trace-slot");
+      try {
+        const resp = await fetch("/artifact?p=" + encodeURIComponent(d.dataset.src));
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        slot.innerHTML = renderTrace(await resp.json());
+      } catch (e) {
+        d.dataset.loaded = "";
+        slot.innerHTML = '<div class="trace-span-meta">trace load failed (static report has no server — use <code>fastevals view</code>): ' + escapeHtml(String(e)) + '</div>';
+      }
+    }, true);
+
     render();
   </script>
 </body>
