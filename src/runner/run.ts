@@ -195,13 +195,15 @@ async function runAttempt(
   }
 
   // 流式进度:让「跑起来」可观测 —— 每个 attempt 起停、每一轮 send 都打到 stderr
-  //(结果走 stdout,互不干扰)。
+  //(结果走 stdout,互不干扰);同时镜像进容器主日志(Docker 的 Logs 标签页可见 agent 逐轮活动)。
   const who = run.model ? `${run.agent.name}/${run.model}` : run.agent.name;
-  const log = (m: string) => process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
-
   let sandbox: Sandbox | undefined;
   let agentCleanup: Cleanup | void = undefined;
   let agentSetupCtx: AgentContext | undefined;
+  const log = (m: string) => {
+    process.stderr.write(`  · ${evalDef.id} [${who}] ${m}\n`);
+    void sandbox?.appendLog?.(m)?.catch(() => {});
+  };
   try {
     log("起沙箱…");
     sandbox = await createSandbox({

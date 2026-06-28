@@ -18,6 +18,9 @@ const DEFAULT_TIMEOUT = 600_000;
 // 容器内工作目录。
 const CONTAINER_WORKDIR = "/home/sandbox/workspace";
 
+// 容器「主日志」文件:PID1 tail 它 → `docker logs` 实时显示;appendLog 往里写。
+const CONTAINER_LOG = "/tmp/fastevals-agent.log";
+
 // 非 root 用户:安全 + 兼容(如 Claude Code 在 root 下拒绝 --dangerously-skip-permissions)。
 // node:*-slim 镜像自带 UID/GID 1000 的 node 用户。
 const SANDBOX_UID = 1000;
@@ -73,9 +76,16 @@ export class DockerSandbox implements Sandbox {
     await this.ensureImage(imageName);
 
     // 起容器(先以 root 做初始化,之后命令切到非 root 用户)。
+    // PID1 改成 tail 一个日志文件(而非 sleep infinity):这样容器「主日志」= 这个文件,
+    // `docker logs` / Docker UI 的 Logs 标签页能实时显示我们 appendLog 进去的 agent 逐轮活动。
+    // 文件先 touch + chmod 666,好让之后以 1000 用户跑的 exec 也能往里 append。
     this.container = await this.docker.createContainer({
       Image: imageName,
-      Cmd: ["sleep", "infinity"], // 保持容器存活
+      Cmd: [
+        "sh",
+        "-c",
+        `touch ${CONTAINER_LOG}; chmod 666 ${CONTAINER_LOG}; exec tail -n +1 -F ${CONTAINER_LOG}`,
+      ],
       WorkingDir: CONTAINER_WORKDIR,
       Tty: true,
       HostConfig: {
@@ -283,6 +293,12 @@ export class DockerSandbox implements Sandbox {
   /** 经 bash -c 跑一段 shell 脚本。opts 为选项对象。 */
   async runShell(script: string, opts: CommandOptions = {}): Promise<CommandResult> {
     return this.runCommand("bash", ["-c", script], opts);
+  }
+
+  /** 追加一行到容器主日志(PID1 在 tail)→ Docker 的 Logs 标签页实时可见。 */
+  async appendLog(line: string): Promise<void> {
+    const esc = line.replace(/'/g, "'\\''");
+    await this.runCommand("sh", ["-c", `printf '%s\\n' '${esc}' >> ${CONTAINER_LOG}`]);
   }
 
   /** 读容器里的文件。 */

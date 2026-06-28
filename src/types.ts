@@ -217,6 +217,11 @@ export interface Sandbox {
   setWorkingDirectory(path: string): void;
   stop(): Promise<void>;
   readonly sandboxId: string;
+  /**
+   * 可选:把一行写进容器的「主日志」(PID1 在 tail 它)——于是 `docker logs` /
+   * Docker UI 的 Logs 标签页能实时看到 agent 逐轮活动。docker 后端实现,其它可省略。
+   */
+  appendLog?(line: string): Promise<void>;
 }
 
 // ───────────────────────── 评分 / 断言 ─────────────────────────
