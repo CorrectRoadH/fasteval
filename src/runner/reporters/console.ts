@@ -22,7 +22,7 @@ function fmtDuration(ms: number): string {
 export function Console(): Reporter {
   return {
     onRunStart(evals) {
-      process.stdout.write(`\n发现 ${evals.length} 个 eval\n\n`);
+      process.stdout.write(`\n本次运行 ${evals.length} 个 eval\n\n`);
     },
     onEvalComplete(result: EvalResult) {
       const sym = SYMBOL[result.verdict] ?? "?";

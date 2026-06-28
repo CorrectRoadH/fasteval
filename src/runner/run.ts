@@ -78,9 +78,12 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     }
   }
 
+  // onRunStart 报「本次实际要跑的 eval」(过滤 + 去重),不是发现到的全部 —— 否则计数误导。
+  const runningIds = new Set(attempts.map((a) => a.evalDef.id));
+  const runningEvals = [...runningIds].map((id) => ({ id }));
   const firstAgent = opts.agentRuns[0]?.agent;
   for (const r of opts.reporters) {
-    await r.onRunStart?.(opts.evals.map((e) => ({ id: e.id })), firstAgent as Agent);
+    await r.onRunStart?.(runningEvals, firstAgent as Agent);
   }
 
   const results: EvalResult[] = [];
