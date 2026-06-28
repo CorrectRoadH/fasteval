@@ -154,8 +154,12 @@ export class DockerSandbox implements Sandbox {
     args: string[] = [],
     opts: CommandOptions = {},
   ): Promise<CommandResult> {
-    // 保证 npm 全局 bin 在 PATH 里。
+    // 保证 npm 全局 bin 在 PATH 里;固定 HOME/USER,让 codex(~/.codex)、npm 全局、
+    // bash 的 ~ 展开都落在 node 用户家目录,不依赖 docker exec 是否注入 HOME。
     const env = {
+      HOME: "/home/node",
+      USER: "node",
+      LOGNAME: "node",
       ...opts.env,
       PATH: SANDBOX_PATH,
     };
