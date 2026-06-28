@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   CheckCircle2,
@@ -14,35 +14,120 @@ import "./styles.css";
 
 const githubUrl = "https://github.com/ctrdh/fastevals";
 
-const modes = {
-  humans: {
-    label: "For humans",
-    command: "npx fastevals init",
-    caption: "Write evals. Run a matrix. Open the evidence.",
-    files: ["evals/weather.eval.ts", "fastevals.config.ts", ".fastevals/latest"],
+const files = {
+  humans: ["evals/weather.eval.ts", "fastevals.config.ts", ".fastevals/latest"],
+  agents: ["PROMPT.md", "EVAL.ts", "__fastevals__/results.json"],
+};
+
+const copy = {
+  en: {
+    meta: "fastevals is a lightweight TypeScript agent eval tool for agents, services, functions, and coding-agent fixtures.",
+    navStart: "Start",
+    languageLabel: "Switch language",
+    modes: {
+      humans: {
+        label: "For teams",
+        command: "npx fastevals init",
+        caption: "Write a TypeScript eval, run it across targets, and read the evidence without building a bespoke harness.",
+      },
+      agents: {
+        label: "For agents",
+        command: "npx fastevals --agent codex fixtures/button",
+        caption: "Give any agent a real task, then grade the answer, the workspace, and the path it took.",
+      },
+    },
+    heroTitle: "Lightweight agent evals for every project.",
+    copyCommand: "Copy command",
+    copied: "copied",
+    primaryAction: "Start",
+    github: "GitHub",
+    visualLabel: "fastevals product diagram",
+    runStatusPassed: "passed",
+    scoreLabel: "Pass rate",
+    workflowLabel: "fastevals workflow",
+    steps: [
+      ["Define", "Describe correct behavior in a small TypeScript file."],
+      ["Run", "Use the same eval for agents, services, functions, or fixtures."],
+      ["Inspect", "Read verdicts, traces, costs, and workspace evidence."],
+    ],
+    setupEyebrow: "Start",
+    setupTitle: "Install. Init. Evaluate.",
   },
-  agents: {
-    label: "For agents",
-    command: "npx fastevals --agent codex fixtures/button",
-    caption: "Give an agent a task. Verify the workspace.",
-    files: ["PROMPT.md", "EVAL.ts", "__fastevals__/results.json"],
+  zh: {
+    meta: "fastevals 是轻量、通用、DX 体验好的 TypeScript agent eval 工具，适合评 agents、services、functions 和 coding-agent fixtures。",
+    navStart: "开始",
+    languageLabel: "切换语言",
+    modes: {
+      humans: {
+        label: "给团队",
+        command: "npx fastevals init",
+        caption: "写一个 TypeScript eval，就能在不同目标上运行并查看证据，不用自建评测脚手架。",
+      },
+      agents: {
+        label: "给 Agent",
+        command: "npx fastevals --agent codex fixtures/button",
+        caption: "给任意 agent 一个真实任务，再评它的回答、工作区结果和执行路径。",
+      },
+    },
+    heroTitle: "适合每个项目的轻量 Agent Evals。",
+    copyCommand: "复制命令",
+    copied: "已复制",
+    primaryAction: "开始",
+    github: "GitHub",
+    visualLabel: "fastevals 产品示意图",
+    runStatusPassed: "通过",
+    scoreLabel: "通过率",
+    workflowLabel: "fastevals 工作流",
+    steps: [
+      ["定义", "用一个小 TypeScript 文件描述什么算正确。"],
+      ["运行", "同一个 eval 可评 agents、services、functions 或 fixtures。"],
+      ["检查", "查看判决、trace、成本和工作区证据。"],
+    ],
+    setupEyebrow: "开始",
+    setupTitle: "安装。初始化。开始评测。",
   },
 };
 
+function detectLocale() {
+  let saved;
+  try {
+    saved = window.localStorage.getItem("fastevals-locale");
+  } catch {
+    saved = undefined;
+  }
+  if (saved === "zh" || saved === "en") return saved;
+  return window.navigator.language?.toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
 function App() {
+  const [locale, setLocale] = useState(detectLocale);
+  const t = copy[locale];
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("fastevals-locale", locale);
+    } catch {
+      // Language selection still works for the current session.
+    }
+    document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+    document.querySelector('meta[name="description"]')?.setAttribute("content", t.meta);
+  }, [locale, t.meta]);
+
   return (
     <>
-      <Header />
+      <Header locale={locale} setLocale={setLocale} t={t} />
       <main>
-        <Hero />
-        <Strip />
-        <Setup />
+        <Hero t={t} />
+        <Strip t={t} />
+        <Setup t={t} />
       </main>
     </>
   );
 }
 
-function Header() {
+function Header({ locale, setLocale, t }) {
+  const nextLocale = locale === "en" ? "zh" : "en";
+
   return (
     <header className="topbar shell">
       <a className="brand" href="#top" aria-label="fastevals home">
@@ -50,19 +135,26 @@ function Header() {
         <span>fastevals</span>
       </a>
       <nav className="nav" aria-label="Primary">
-        <a href="#setup">Start</a>
-        <a href={githubUrl}>GitHub</a>
+        <a href="#setup">{t.navStart}</a>
+        <a href={githubUrl}>{t.github}</a>
+        <button type="button" className="lang-toggle" aria-label={t.languageLabel} onClick={() => setLocale(nextLocale)}>
+          {nextLocale === "zh" ? "中文" : "EN"}
+        </button>
       </nav>
     </header>
   );
 }
 
-function Hero() {
+function Hero({ t }) {
   const [mode, setMode] = useState("humans");
   const [copied, setCopied] = useState(false);
-  const active = modes[mode];
+  const active = t.modes[mode];
   const copyCommand = async () => {
-    await navigator.clipboard?.writeText(active.command);
+    try {
+      await navigator.clipboard?.writeText(active.command);
+    } catch {
+      // Some browsers block clipboard access outside secure contexts.
+    }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   };
@@ -75,9 +167,9 @@ function Hero() {
           <span />
           <span />
         </div>
-        <h1>The eval framework for agents and software.</h1>
+        <h1>{t.heroTitle}</h1>
         <div className="mode-switch" aria-label="Audience">
-          {Object.entries(modes).map(([key, item]) => (
+          {Object.entries(t.modes).map(([key, item]) => (
             <button
               key={key}
               type="button"
@@ -90,32 +182,32 @@ function Hero() {
         </div>
         <div className="copy-row">
           <code>$ {active.command}</code>
-          <button type="button" aria-label="Copy command" onClick={copyCommand}>
+          <button type="button" aria-label={t.copyCommand} onClick={copyCommand}>
             <Clipboard size={16} />
           </button>
-          <span className={copied ? "copy-status visible" : "copy-status"}>copied</span>
+          <span className={copied ? "copy-status visible" : "copy-status"}>{t.copied}</span>
         </div>
         <p className="lede">{active.caption}</p>
         <div className="actions">
           <a className="button primary" href="#setup">
             <Play size={15} />
-            Start
+            {t.primaryAction}
           </a>
           <a className="button ghost" href={githubUrl}>
             <GitFork size={15} />
-            GitHub
+            {t.github}
           </a>
         </div>
       </div>
 
-      <ProductVisual mode={active} />
+      <ProductVisual mode={mode} t={t} />
     </section>
   );
 }
 
-function ProductVisual({ mode }) {
+function ProductVisual({ mode, t }) {
   return (
-    <div className="visual" aria-label="fastevals product diagram">
+    <div className="visual" aria-label={t.visualLabel}>
       <div className="wire a" />
       <div className="wire b" />
       <div className="wire c" />
@@ -125,7 +217,7 @@ function ProductVisual({ mode }) {
           <span>evals/</span>
         </div>
         <ul>
-          {mode.files.map((file, index) => (
+          {files[mode].map((file, index) => (
             <li key={file}>
               {index === 0 ? <FileCode2 size={16} /> : index === 1 ? <Wrench size={16} /> : <Terminal size={16} />}
               <span>{file}</span>
@@ -138,7 +230,7 @@ function ProductVisual({ mode }) {
         <div className="run-line">
           <CheckCircle2 size={16} />
           <span>weather</span>
-          <b>passed</b>
+          <b>{t.runStatusPassed}</b>
         </div>
         <div className="run-line">
           <CheckCircle2 size={16} />
@@ -147,7 +239,7 @@ function ProductVisual({ mode }) {
         </div>
       </div>
       <div className="score-card">
-        <span>Pass rate</span>
+        <span>{t.scoreLabel}</span>
         <strong>91.7%</strong>
         <div className="score-bars" aria-hidden="true">
           <i />
@@ -160,12 +252,12 @@ function ProductVisual({ mode }) {
   );
 }
 
-function Strip() {
+function Strip({ t }) {
   return (
-    <section className="strip shell" aria-label="fastevals workflow">
-      <Step k="1" title="Define" text="One file per behavior." />
-      <Step k="2" title="Run" text="Agents, services, functions." />
-      <Step k="3" title="Inspect" text="Trace, cost, verdict." />
+    <section className="strip shell" aria-label={t.workflowLabel}>
+      {t.steps.map(([title, text], index) => (
+        <Step key={title} k={String(index + 1)} title={title} text={text} />
+      ))}
     </section>
   );
 }
@@ -180,12 +272,12 @@ function Step({ k, title, text }) {
   );
 }
 
-function Setup() {
+function Setup({ t }) {
   return (
     <section id="setup" className="setup shell">
       <div>
-        <p className="eyebrow">Start</p>
-        <h2>Install. Init. Evaluate.</h2>
+        <p className="eyebrow">{t.setupEyebrow}</p>
+        <h2>{t.setupTitle}</h2>
       </div>
       <pre>{`npm install -D fastevals
 npx fastevals init
