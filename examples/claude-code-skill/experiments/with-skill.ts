@@ -10,7 +10,9 @@ import { defineExperiment, claudeCodeAgent } from "fasteval";
 export default defineExperiment({
   description: "claude-code + effect-ts skill",
   agent: claudeCodeAgent({
-    skills: ["effect-ts"],
+    // GitHub org/repo 格式：`npx skills add Effect-TS/skills` 会拉 repo、读 manifest、
+    // 写 skills-lock.json，local name "effect-ts" 由 skill 自己的 manifest 声明。
+    skills: ["Effect-TS/skills"],
   }),
   model: "claude-sonnet-4-6",
   sandbox: "docker",

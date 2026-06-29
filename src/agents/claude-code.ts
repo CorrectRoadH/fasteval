@@ -28,8 +28,11 @@ export interface ClaudeCodeConfig {
    */
   mcpServers?: McpServer[];
   /**
-   * 额外安装的 Claude Code skill 名(每个沙箱 setup 时 `claude skills install <name>`)。
-   * skill 须已在项目 skills-lock.json 里声明,或可从 Claude Code skill registry 直接解析。
+   * 额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
+   * setup 阶段在沙箱里执行 `npx skills add <org/repo>`；
+   * 结果写进沙箱工作区的 skills-lock.json，claude CLI 启动时自动读取。
+   *
+   * @example skills: ["Effect-TS/skills"]
    */
   skills?: string[];
 }
@@ -58,11 +61,10 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
       }
 
       if (config?.skills?.length) {
-        const env: Record<string, string> = { ANTHROPIC_API_KEY: getApiKey() };
-        const baseUrl = getBaseUrl();
-        if (baseUrl) env["ANTHROPIC_BASE_URL"] = baseUrl;
-        for (const skill of config.skills) {
-          await sb.runCommand("claude", ["skills", "install", skill], { env });
+        for (const source of config.skills) {
+          // source = "Effect-TS/skills"（GitHub org/repo）
+          // `npx skills add` 拉 repo、读 manifest、写 skills-lock.json，claude CLI 自动读取。
+          await sb.runShell(`npx skills add ${source}`);
         }
       }
     },

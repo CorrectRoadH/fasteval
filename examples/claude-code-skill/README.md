@@ -45,10 +45,11 @@ skill 来自 [Effect-TS/skills](https://github.com/Effect-TS/skills)。
 先在你的项目里安装（fasteval 会把 `skills-lock.json` 带进沙箱）：
 
 ```sh
-claude skills install effect-ts
+npx skills add Effect-TS/skills
 ```
 
-这会更新项目根的 `skills-lock.json`。
+这会拉取 GitHub 上的 `Effect-TS/skills` repo，读取 skill manifest，把 `"effect-ts"` 写进
+项目根的 `skills-lock.json`（local name 由 skill manifest 声明，不是自己起的）。
 
 ### 5. 运行对比实验
 
@@ -71,13 +72,14 @@ npx fasteval view
 import { claudeCodeAgent } from "fasteval";
 
 export default defineExperiment({
-  agent: claudeCodeAgent({ skills: ["effect-ts"] }),
+  agent: claudeCodeAgent({ skills: ["Effect-TS/skills"] }),
   // ...
 });
 ```
 
-`claudeCodeAgent({ skills: ["effect-ts"] })` 在沙箱 setup 阶段执行
-`claude skills install effect-ts`，将 skill 的 `.md` 文件注入到 Claude Code 的上下文里。
+`claudeCodeAgent({ skills: ["Effect-TS/skills"] })` 在沙箱 setup 阶段执行
+`npx skills add Effect-TS/skills`，拉取 GitHub repo 并把 skill 写进沙箱里的 `skills-lock.json`；
+claude CLI 启动时自动读取，将 skill 的 `.md` 文件注入到上下文里。
 Agent 收到 prompt 时已经"知道" Effect-TS 的 API 风格与最佳实践。
 
 ### 无 skill 的对照组（`experiments/baseline.ts`）

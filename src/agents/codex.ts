@@ -20,6 +20,13 @@ export interface CodexConfig {
    * 格式对应 codex config.toml 的 [mcp_server.<name>] 表。
    */
   mcpServers?: McpServer[];
+  /**
+   * 额外安装的 skill，格式为 GitHub `"org/repo"`（如 `"Effect-TS/skills"`）。
+   * setup 阶段执行 `npx skills add <org/repo>`，结果写进 skills-lock.json。
+   *
+   * @example skills: ["Effect-TS/skills"]
+   */
+  skills?: string[];
 }
 
 export function codexAgent(config?: CodexConfig): Agent {
@@ -67,6 +74,12 @@ export function codexAgent(config?: CodexConfig): Agent {
           })
           .join("\n\n");
         await sb.runShell(`cat >> ~/.codex/config.toml <<'MCPEOF'\n\n${mcpToml}\nMCPEOF\n`);
+      }
+
+      if (config?.skills?.length) {
+        for (const source of config.skills) {
+          await sb.runShell(`npx skills add ${source}`);
+        }
       }
     },
 
