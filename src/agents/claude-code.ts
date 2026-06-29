@@ -1,7 +1,7 @@
 import { defineSandboxAgent } from "../define.ts";
 import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
-import type { Agent } from "../types.ts";
+import type { Agent, McpServer } from "../types.ts";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Claude Code 的 agent adapter(沙箱型)。
@@ -22,6 +22,16 @@ export interface ClaudeCodeConfig {
    * 控制 eval 成本上限;省略时用 CLI 原生默认(无限制)。
    */
   maxTurns?: number;
+  /**
+   * 额外 MCP server(每个沙箱 setup 时写进 ~/.claude/claude.json)。
+   * 示例:{ name: "browser", command: "npx", args: ["-y", "@anthropic/mcp-browser"] }
+   */
+  mcpServers?: McpServer[];
+  /**
+   * 额外安装的 Claude Code skill 名(每个沙箱 setup 时 `claude skills install <name>`)。
+   * skill 须已在项目 skills-lock.json 里声明,或可从 Claude Code skill registry 直接解析。
+   */
+  skills?: string[];
 }
 
 export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
@@ -34,6 +44,27 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
 
     async setup(sb) {
       await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"]);
+
+      if (config?.mcpServers?.length) {
+        const servers: Record<string, object> = {};
+        for (const s of config.mcpServers) {
+          servers[s.name] = {
+            command: s.command,
+            ...(s.args?.length && { args: s.args }),
+            ...(s.env && { env: s.env }),
+          };
+        }
+        await shared.writeFile(sb, "~/.claude/claude.json", JSON.stringify({ mcpServers: servers }, null, 2));
+      }
+
+      if (config?.skills?.length) {
+        const env: Record<string, string> = { ANTHROPIC_API_KEY: getApiKey() };
+        const baseUrl = getBaseUrl();
+        if (baseUrl) env["ANTHROPIC_BASE_URL"] = baseUrl;
+        for (const skill of config.skills) {
+          await sb.runCommand("claude", ["skills", "install", skill], { env });
+        }
+      }
     },
 
     async send(input, ctx) {

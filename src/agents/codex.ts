@@ -1,7 +1,7 @@
 import { defineSandboxAgent } from "../define.ts";
 import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
-import type { Agent } from "../types.ts";
+import type { Agent, McpServer } from "../types.ts";
 
 // ───────────────────────────────────────────────────────────────────────────
 // OpenAI Codex CLI 的 agent adapter(沙箱型)。
@@ -15,6 +15,11 @@ export interface CodexConfig {
   apiKey?: string;
   /** OpenAI 兼容代理 base URL(如 https://s2a.example.com/v1)。省略时读 CODEX_BASE_URL env。 */
   baseUrl?: string;
+  /**
+   * 额外 MCP server(每个沙箱 setup 时追加进 ~/.codex/config.toml)。
+   * 格式对应 codex config.toml 的 [mcp_server.<name>] 表。
+   */
+  mcpServers?: McpServer[];
 }
 
 export function codexAgent(config?: CodexConfig): Agent {
@@ -47,6 +52,21 @@ export function codexAgent(config?: CodexConfig): Agent {
         );
       } else {
         await shared.writeFile(sb, "~/.codex/config.toml", `model = "${model}"\nmodel_reasoning_effort = "${effort}"\n`);
+      }
+
+      if (config?.mcpServers?.length) {
+        const mcpToml = config.mcpServers
+          .map((s) => {
+            const lines: string[] = [`[mcp_server.${s.name}]`, `command = "${s.command}"`];
+            if (s.args?.length) lines.push(`args = [${s.args.map((a) => `"${a}"`).join(", ")}]`);
+            if (s.env && Object.keys(s.env).length) {
+              lines.push(`[mcp_server.${s.name}.env]`);
+              for (const [k, v] of Object.entries(s.env)) lines.push(`${k} = "${v}"`);
+            }
+            return lines.join("\n");
+          })
+          .join("\n\n");
+        await sb.runShell(`cat >> ~/.codex/config.toml <<'MCPEOF'\n\n${mcpToml}\nMCPEOF\n`);
       }
     },
 

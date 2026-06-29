@@ -18,6 +18,7 @@ export { bubAgent } from "./agents/bub.ts";
 export type { ClaudeCodeConfig } from "./agents/claude-code.ts";
 export type { CodexConfig } from "./agents/codex.ts";
 export type { BubConfig } from "./agents/bub.ts";
+export type { McpServer } from "./types.ts";
 
 export { requireEnv, getEnv, stripComments } from "./util.ts";
 export { createCheckpoint, restoreCheckpoint } from "./sandbox/checkpoint.ts";

@@ -142,6 +142,23 @@ export interface O11ySummary {
   estimatedCostUSD?: number;
 }
 
+// ───────────────────────── Plugins / Skills ─────────────────────────
+
+/**
+ * MCP server 描述符 —— Claude Code 与 Codex 共用的扩展插件单元。
+ * 在 agent factory config 里声明,setup 阶段写进各自的配置文件。
+ */
+export interface McpServer {
+  /** 服务器唯一名(config key)。 */
+  name: string;
+  /** 启动命令(如 "npx"、"node"、"uvx")。 */
+  command: string;
+  /** 传给命令的参数。 */
+  args?: string[];
+  /** 注入服务器进程的环境变量。 */
+  env?: Record<string, string>;
+}
+
 // ───────────────────────── Agent 契约 ─────────────────────────
 
 export interface TurnInput {

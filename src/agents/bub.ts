@@ -23,6 +23,12 @@ export interface BubConfig {
   apiKey?: string;
   /** OpenAI 兼容代理的 base URL。省略时读 BUB_API_BASE env。 */
   apiBase?: string;
+  /**
+   * 额外装进 bub tool 环境的 Python 包(pip 名或 git URL)。
+   * 每个沙箱 setup 时作为 `uv tool install --with <pkg>` 追加到 bub 环境里。
+   * 示例:["bub-plugin-memory", "git+https://github.com/..."]
+   */
+  pythonPlugins?: string[];
 }
 
 const SANDBOX_WORKSPACE = "/home/sandbox/workspace";
@@ -134,6 +140,14 @@ export function bubAgent(config?: BubConfig): Agent {
 
     async setup(sb) {
       await ensureBub(sb);
+
+      if (config?.pythonPlugins?.length) {
+        const extraWith = config.pythonPlugins.map((p) => `--with '${p}'`).join(" ");
+        await sb.runShell(
+          `${UV} tool install --reinstall --python 3.12 --prerelease allow 'bub' --overrides ${BUB_OVERRIDE_FILE} --with '${OTEL_PLUGIN}' ${extraWith}`,
+        );
+      }
+
       if (!(await sb.fileExists(`${SANDBOX_WORKSPACE}/AGENTS.md`))) {
         await shared.writeFile(
           sb,
