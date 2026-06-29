@@ -1,5 +1,5 @@
 import { defineSandboxAgent } from "../define.ts";
-import { requireEnv } from "../util.ts";
+import { requireEnv, getEnv } from "../util.ts";
 import { shared } from "./shared.ts";
 import type { Agent } from "../types.ts";
 
@@ -12,10 +12,21 @@ import type { Agent } from "../types.ts";
 export interface ClaudeCodeConfig {
   /** Anthropic API key。省略时读 ANTHROPIC_API_KEY env。 */
   apiKey?: string;
+  /**
+   * 自定义 API base URL(代理 / 内网端点)。省略时读 ANTHROPIC_BASE_URL env;
+   * 两者都没有则用 Anthropic 官方端点(claude CLI 默认行为)。
+   */
+  baseUrl?: string;
+  /**
+   * 最多跑几个 tool-use 轮次(→ `--max-turns`)。
+   * 控制 eval 成本上限;省略时用 CLI 原生默认(无限制)。
+   */
+  maxTurns?: number;
 }
 
 export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
   const getApiKey = () => config?.apiKey ?? requireEnv("ANTHROPIC_API_KEY");
+  const getBaseUrl = () => config?.baseUrl ?? getEnv("ANTHROPIC_BASE_URL");
 
   return defineSandboxAgent({
     name: "claude-code",
@@ -29,14 +40,16 @@ export function claudeCodeAgent(config?: ClaudeCodeConfig): Agent {
       const sb = ctx.sandbox;
       const args = ["--print", "--dangerously-skip-permissions"];
       if (ctx.model) args.push("--model", ctx.model);
+      if (config?.maxTurns != null) args.push("--max-turns", String(config.maxTurns));
       if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
       if (!ctx.session.isNew && ctx.session.id) args.push("--resume", ctx.session.id);
       args.push(input.text);
 
-      const res = await sb.runCommand("claude", args, {
-        env: { ANTHROPIC_API_KEY: getApiKey() },
-        stream: true,
-      });
+      const env: Record<string, string> = { ANTHROPIC_API_KEY: getApiKey() };
+      const baseUrl = getBaseUrl();
+      if (baseUrl) env["ANTHROPIC_BASE_URL"] = baseUrl;
+
+      const res = await sb.runCommand("claude", args, { env, stream: true });
 
       const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
       ctx.session.id = shared.sessionIdFromClaudeTranscript(raw) ?? ctx.session.id;
