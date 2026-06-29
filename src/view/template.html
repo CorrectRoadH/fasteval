@@ -105,11 +105,15 @@
           const statusClass = r.verdict === "passed" ? "good" : r.verdict === "failed" ? "bad" : "warn";
           const reason = r.error || bad;
           const item = `<div class="eval-item"><span class="${statusClass}">${r.verdict}</span><span class="eval-id">${escapeHtml(r.id)}</span><span class="assertions"${reason ? ` title="${escapeAttr(reason)}"` : ""}>${reason ? escapeHtml(reason) : '<span class="reason-empty">all assertions passed</span>'}</span><span class="num">${formatDuration(r.durationMs)}${r.startedAt ? `<small class="ran-at">${escapeHtml(formatClock(r.startedAt))}</small>` : ""}</span><span class="num">${formatTokens(totalTokens(r.usage))}</span><span class="num">${formatCost(r.estimatedCostUSD)}</span><span class="num" title="attempt ${r.attempt + 1} of ${row.runs}">#${r.attempt + 1}</span></div>`;
-          // trace 按需懒加载:展开时才 fetch 该 eval 的 trace.json(见下方 toggle 处理)。
-          const trace = (r.hasTrace && r.artifactBase)
-            ? `<details class="trace-details trace-lazy" data-src="${escapeAttr(r.artifactBase + "/trace.json")}"><summary>trace</summary><div class="trace-slot"><div class="trace-span-meta">loading…</div></div></details>`
+          // 按需懒加载:展开时才 fetch 该 eval 的工件(见下方 toggle 处理)。
+          // transcript 是主视图(events.json,读「agent 做了什么」);timing trace 退为次要(trace.json,瀑布图)。
+          const transcript = (r.hasEvents && r.artifactBase)
+            ? `<details class="trace-details transcript-lazy" data-src="${escapeAttr(r.artifactBase + "/events.json")}"><summary>transcript</summary><div class="trace-slot"><div class="trace-span-meta">loading…</div></div></details>`
             : "";
-          return item + trace;
+          const trace = (r.hasTrace && r.artifactBase)
+            ? `<details class="trace-details trace-lazy" data-src="${escapeAttr(r.artifactBase + "/trace.json")}"><summary>timing trace</summary><div class="trace-slot"><div class="trace-span-meta">loading…</div></div></details>`
+            : "";
+          return item + transcript + trace;
         })
         .join("");
       const sample = JSON.stringify(sampleResult, null, 2);
@@ -211,6 +215,116 @@
       }).join("");
       return `<div class="span-attrs">${ioHtml}${restHtml}</div>`;
     }
+    // ── Claude-Code 风格 transcript:读 events.json,按事件顺序展示「LLM 说了什么 / 调了什么工具」。
+    // 不画时间,只讲叙事:message / thinking / 工具调用(配对它的结果)/ 子 agent / 输入请求 / 错误。
+    const TOOL_VERB = {
+      file_read: "Read", file_write: "Write", file_edit: "Edit",
+      shell: "Bash", web_fetch: "Fetch", web_search: "Search",
+      glob: "Glob", grep: "Grep", list_dir: "List", agent_task: "Task",
+    };
+    function renderTranscript(events) {
+      if (!Array.isArray(events) || !events.length) return '<div class="trace-span-meta">no events</div>';
+      // 先把结果(action.result / subagent.completed)按 callId 建索引,渲染时和它的调用拼在一起。
+      const resultByCall = new Map();
+      for (const ev of events) {
+        if (ev.type === "action.result" || ev.type === "subagent.completed") resultByCall.set(ev.callId, ev);
+      }
+      const pairedResult = new Set();
+      const blocks = [];
+      for (const ev of events) {
+        switch (ev.type) {
+          case "message": blocks.push(renderMessageBlock(ev)); break;
+          case "thinking": blocks.push(renderThinkBlock(ev)); break;
+          case "action.called": {
+            const result = resultByCall.get(ev.callId);
+            if (result) pairedResult.add(ev.callId);
+            blocks.push(renderToolBlock(ev, result));
+            break;
+          }
+          case "subagent.called": {
+            const result = resultByCall.get(ev.callId);
+            if (result) pairedResult.add(ev.callId);
+            blocks.push(renderToolBlock({ tool: "agent_task", name: ev.name, input: { description: ev.name, ...(ev.remoteUrl ? { remoteUrl: ev.remoteUrl } : {}) } }, result));
+            break;
+          }
+          case "action.result":
+          case "subagent.completed":
+            // 没配上调用的孤儿结果才单独渲染(正常都被上面 paired 了)。
+            if (!pairedResult.has(ev.callId)) blocks.push(renderToolBlock({ tool: "unknown", name: "result", input: null }, ev));
+            break;
+          case "input.requested": blocks.push(renderInputBlock(ev)); break;
+          case "compaction": blocks.push(`<div class="ts-compaction">context compacted${ev.reason ? " · " + escapeHtml(ev.reason) : ""}</div>`); break;
+          case "error": blocks.push(`<div class="ts-error">⚠ ${escapeHtml(ev.message || "error")}</div>`); break;
+          default: break;
+        }
+      }
+      return `<div class="transcript">${blocks.join("")}</div>`;
+    }
+    function renderMessageBlock(ev) {
+      const who = ev.role === "assistant" ? "assistant" : "user";
+      return `<div class="ts-msg ts-${who}"><span class="ts-role">${who}</span><div class="ts-text">${escapeHtml(ev.text || "")}</div></div>`;
+    }
+    function renderThinkBlock(ev) {
+      return `<details class="ts-think"><summary>thinking</summary><div class="ts-think-text">${escapeHtml(ev.text || "")}</div></details>`;
+    }
+    function renderInputBlock(ev) {
+      const req = ev.request || {};
+      const opts = (req.options || []).map((o) => o.label || o.id).filter(Boolean).join("  /  ");
+      const body = (req.prompt || "(awaiting input)") + (opts ? "\n[ " + opts + " ]" : "");
+      return `<div class="ts-msg ts-input"><span class="ts-role">input requested</span><div class="ts-text">${escapeHtml(body)}</div></div>`;
+    }
+    function renderToolBlock(call, result) {
+      const verb = TOOL_VERB[call.tool] || call.name || call.tool || "tool";
+      const arg = toolPrimaryArg(call);
+      const label = arg ? `${verb}(${arg})` : verb;
+      const status = result ? result.status : "pending";
+      const dot = status === "failed" ? "bad" : status === "rejected" ? "warn" : status === "pending" ? "pending" : "good";
+      const inputStr = call.input == null ? "" : prettyJson(call.input);
+      const outBody = result ? resultBody(result.output) : "";
+      const preview = result ? previewText(outBody) : "running…";
+      return `<details class="ts-tool-d"><summary class="ts-row"><span class="ts-dot ${dot}"></span><span class="ts-tool" title="${escapeAttr(label)}">${escapeHtml(label)}</span><span class="ts-preview">${escapeHtml(truncate(preview, 140))}</span></summary><div class="ts-body">${
+        inputStr ? `<div class="ts-field"><span class="ts-k">input</span><pre class="attr-pre">${escapeHtml(truncate(inputStr, 4000))}</pre></div>` : ""
+      }${
+        result ? `<div class="ts-field"><span class="ts-k">output${result.status && result.status !== "completed" ? " · " + escapeHtml(result.status) : ""}</span><pre class="attr-pre">${outBody ? escapeHtml(truncate(outBody, 8000)) : '<span class="reason-empty">(empty)</span>'}</pre></div>` : ""
+      }</div></details>`;
+    }
+    function toolPrimaryArg(call) {
+      const input = call.input;
+      if (typeof input === "string") return input;
+      if (!input || typeof input !== "object" || Array.isArray(input)) return "";
+      if (call.tool === "shell") {
+        const c = input.command ?? input.cmd;
+        if (typeof c === "string") return c;
+        if (Array.isArray(c)) return c.filter((x) => typeof x === "string").join(" ");
+      }
+      for (const k of ["path", "file", "file_path", "filename", "pattern", "query", "url", "uri", "prompt", "description", "command", "remoteUrl"]) {
+        if (typeof input[k] === "string" && input[k]) return input[k];
+      }
+      return "";
+    }
+    // 工具结果常是 { output | stdout | content | text }:有文本字段就直接展示文本,否则美化 JSON。
+    function resultBody(output) {
+      if (output == null) return "";
+      if (typeof output === "string") return output;
+      if (typeof output === "object" && !Array.isArray(output)) {
+        for (const k of ["output", "stdout", "content", "text", "result", "body"]) {
+          if (typeof output[k] === "string") return output[k];
+        }
+      }
+      return prettyJson(output);
+    }
+    function prettyJson(v) {
+      if (typeof v === "string") return v;
+      try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+    }
+    function previewText(s) {
+      const first = String(s).split("\n").find((l) => l.trim());
+      return first || "";
+    }
+    function truncate(s, n) {
+      s = String(s);
+      return s.length > n ? s.slice(0, n) + " … [+" + (s.length - n) + " chars]" : s;
+    }
     function formatConfigValue(value) {
       if (value === null) return "null";
       if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
@@ -285,17 +399,20 @@
     // 用 capture 监听 toggle(toggle 不冒泡),静态报告(无 server)fetch 失败给出提示。
     document.addEventListener("toggle", async (event) => {
       const d = event.target;
-      if (!(d instanceof HTMLElement) || !d.classList.contains("trace-lazy")) return;
+      if (!(d instanceof HTMLElement)) return;
+      const isTranscript = d.classList.contains("transcript-lazy");
+      if (!isTranscript && !d.classList.contains("trace-lazy")) return;
       if (!d.open || d.dataset.loaded) return;
       d.dataset.loaded = "1";
       const slot = d.querySelector(".trace-slot");
       try {
         const resp = await fetch("/artifact?p=" + encodeURIComponent(d.dataset.src));
         if (!resp.ok) throw new Error("HTTP " + resp.status);
-        slot.innerHTML = renderTrace(await resp.json());
+        const data = await resp.json();
+        slot.innerHTML = isTranscript ? renderTranscript(data) : renderTrace(data);
       } catch (e) {
         d.dataset.loaded = "";
-        slot.innerHTML = '<div class="trace-span-meta">trace load failed (static report has no server — use <code>fasteval view</code>): ' + escapeHtml(String(e)) + '</div>';
+        slot.innerHTML = '<div class="trace-span-meta">load failed (static report has no server — use <code>fasteval view</code>): ' + escapeHtml(String(e)) + '</div>';
       }
     }, true);
 

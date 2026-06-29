@@ -449,6 +449,109 @@ details.span-d > summary.trace-row:hover { background: color-mix(in oklch, var(-
 }
 .trace-bar.bad { background: var(--bad); }
 .trace-dur { color: var(--soft); text-align: right; }
+
+/* ── Claude-Code 风格 transcript:按事件顺序读「LLM 说了什么 / 调了什么工具」,不强调时间 ── */
+.transcript { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 6px; }
+.ts-msg {
+  padding: 8px 11px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in oklch, var(--line), transparent 30%);
+  background: color-mix(in oklch, var(--panel), black 4%);
+}
+.ts-assistant { border-left: 2px solid var(--good); }
+.ts-user { border-left: 2px solid var(--line-strong); }
+.ts-input { border-left: 2px solid var(--warn); }
+.ts-role {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--soft);
+  margin-bottom: 4px;
+}
+.ts-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  max-height: 360px;
+  overflow: auto;
+}
+.ts-think { font-size: 12px; }
+.ts-think > summary {
+  cursor: pointer;
+  color: var(--soft);
+  font-style: italic;
+  list-style: none;
+  padding: 2px 0;
+}
+.ts-think > summary::-webkit-details-marker { display: none; }
+.ts-think > summary::before { content: "\2726  "; }
+.ts-think-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-style: italic;
+  padding: 4px 0 6px 16px;
+  max-height: 280px;
+  overflow: auto;
+}
+.ts-tool-d {
+  border: 1px solid color-mix(in oklch, var(--line), transparent 30%);
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--panel), black 6%);
+}
+.ts-tool-d > summary.ts-row {
+  list-style: none;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 8px minmax(110px, max-content) 1fr;
+  align-items: center;
+  column-gap: 9px;
+  padding: 7px 11px;
+}
+.ts-tool-d > summary.ts-row::-webkit-details-marker { display: none; }
+.ts-tool-d[open] > summary.ts-row { border-bottom: 1px solid color-mix(in oklch, var(--line), transparent 40%); }
+.ts-tool-d > summary.ts-row:hover { background: color-mix(in oklch, var(--panel-2), var(--panel) 20%); }
+.ts-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.ts-dot.bad { background: var(--bad); }
+.ts-dot.warn { background: var(--warn); }
+.ts-dot.pending { background: var(--soft); }
+.ts-tool {
+  font-weight: 600;
+  font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ts-preview { font-size: 12px; color: var(--soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts-body { padding: 8px 11px 10px; display: flex; flex-direction: column; gap: 8px; }
+.ts-field .ts-k {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--soft);
+  margin-bottom: 3px;
+}
+.ts-error {
+  padding: 8px 11px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in oklch, var(--bad), transparent 55%);
+  color: var(--bad);
+  font-size: 12.5px;
+}
+.ts-compaction {
+  text-align: center;
+  font-size: 11px;
+  color: var(--soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 0;
+}
 pre {
   margin: 0;
   padding: 12px;

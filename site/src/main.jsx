@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const githubUrl = "https://github.com/ctrdh/fasteval";
+const githubUrl = "https://github.com/CorrectRoadH?tab=repositories";
 
 const files = {
   humans: ["evals/weather.eval.ts", "fasteval.config.ts", ".fasteval/latest"],
