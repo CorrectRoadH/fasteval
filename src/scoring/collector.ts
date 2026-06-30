@@ -56,7 +56,8 @@ export class AssertionCollector {
     this.specs.push(spec);
     const handle: RecordHandle = {
       atLeast(threshold) {
-        spec.severity = "soft";
+        // 写了阈值 = 硬性下限:不够就 fail(gate)。只想记分不挂用 .soft(threshold)。
+        spec.severity = "gate";
         spec.threshold = threshold;
         return handle;
       },

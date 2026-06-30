@@ -1117,43 +1117,56 @@ a.brand:hover { opacity: 0.75; }
 
 .code-line {
   display: grid;
-  grid-template-columns: 36px 16px minmax(0, 1fr) auto;
+  grid-template-columns: 46px 22px minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 8px;
-  padding-right: 12px;
   border-left: 3px solid transparent;
 }
 .code-line.line-clickable { cursor: pointer; }
-.code-line.line-clickable:hover { background: color-mix(in oklch, var(--panel), var(--line) 40%); }
-.code-line.line-send { border-left-color: color-mix(in oklch, var(--line-strong), transparent 25%); }
+.code-line.line-clickable:hover { background: color-mix(in oklch, var(--panel), var(--line) 45%); }
+.code-line.line-send { border-left-color: color-mix(in oklch, var(--line-strong), transparent 30%); }
+.code-line.is-open { background: color-mix(in oklch, var(--panel), var(--line) 34%); }
+
+/* github-diff 式整行红绿:行底色 + 更深的行号格 + 实色左缘(过=绿/加,不过=红/减)。 */
 .code-line.line-pass {
-  background: color-mix(in oklch, var(--good), transparent 92%);
-  border-left-color: color-mix(in oklch, var(--good), transparent 35%);
+  background: color-mix(in oklch, var(--good), var(--panel) 74%);
+  border-left-color: var(--good);
+}
+.code-line.line-pass .ln {
+  background: color-mix(in oklch, var(--good), var(--panel) 52%);
+  color: color-mix(in oklch, var(--good), var(--text) 45%);
 }
 .code-line.line-fail {
-  background: color-mix(in oklch, var(--bad), transparent 90%);
-  border-left-color: color-mix(in oklch, var(--bad), transparent 30%);
+  background: color-mix(in oklch, var(--bad), var(--panel) 74%);
+  border-left-color: var(--bad);
 }
-.code-line.line-pass.line-clickable:hover { background: color-mix(in oklch, var(--good), transparent 86%); }
-.code-line.line-fail.line-clickable:hover { background: color-mix(in oklch, var(--bad), transparent 84%); }
-.code-line.is-open { background: color-mix(in oklch, var(--panel), var(--line) 30%); }
+.code-line.line-fail .ln {
+  background: color-mix(in oklch, var(--bad), var(--panel) 52%);
+  color: color-mix(in oklch, var(--bad), var(--text) 45%);
+}
+.code-line.line-pass.line-clickable:hover { background: color-mix(in oklch, var(--good), var(--panel) 64%); }
+.code-line.line-fail.line-clickable:hover { background: color-mix(in oklch, var(--bad), var(--panel) 64%); }
 
 .ln {
   text-align: right;
   font-size: 11px;
   color: var(--soft);
   user-select: none;
-  padding: 1px 0;
+  padding: 1px 8px 1px 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 .gmark { display: inline-flex; align-items: center; justify-content: center; }
 .gchev { width: 12px; height: 12px; color: var(--muted); transition: transform 0.12s; }
 .gchev.is-open { transform: rotate(90deg); }
-.gstat { font-size: 12px; font-weight: 700; line-height: 1; }
+.gstat { font-size: 13px; font-weight: 800; line-height: 1; }
 .gstat.good { color: var(--good); }
 .gstat.bad { color: var(--bad); }
 
-.ctext { white-space: pre; overflow-x: auto; color: var(--text); }
+.ctext { white-space: pre; overflow-x: auto; color: var(--text); padding-left: 8px; }
 .ctext::-webkit-scrollbar { height: 0; }
+.lbadges { padding-right: 12px; }
 
 .lbadges { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; justify-self: end; }
 .abadge {

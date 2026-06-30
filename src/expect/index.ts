@@ -28,10 +28,10 @@ function createAssertion(
     score,
     // 转成硬门槛(失败即整条 eval 不通过)。
     gate: () => createAssertion(name, "gate", score, threshold),
-    // 转成软分(threshold 省略则沿用现有阈值)。
+    // 转成软分(threshold 省略则沿用现有阈值);软分不够也不挂,只记录。
     soft: (t?: number) => createAssertion(name, "soft", score, t ?? threshold),
-    // 软分 + 显式阈值。
-    atLeast: (t: number) => createAssertion(name, "soft", score, t),
+    // 硬门槛 + 显式阈值:不够就 fail(写了阈值=硬性下限)。只想记分用 .soft(t)。
+    atLeast: (t: number) => createAssertion(name, "gate", score, t),
   };
   return Object.freeze(self);
 }

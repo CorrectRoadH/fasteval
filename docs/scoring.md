@@ -14,15 +14,19 @@
 
 每个断言有一档严重级,决定它如何影响判决:
 
-- **gate** —— 硬性要求。不过 → 整个 eval `failed`。用于"必须成立"的事实。
-- **soft** —— 带阈值的质量分。低于阈值 → 降级为 `scored`(不是直接挂),仅 `--strict` 下才算失败。用于 judge 这类有连续分数的判断。
+- **gate** —— 硬性要求。不过 → 整个 eval `failed`。用于"必须成立"的事实。**写了阈值的 `.atLeast(x)` 也是 gate**(阈值即硬下限:`< x` 就 fail)。
+- **soft** —— 只记录、不影响判决的质量分。失败只在报告里标 `soft:`,**永远不会**把 eval 判成 failed。用 `.soft(threshold)` 显式声明,或 judge / similarity **不带阈值**时的默认(纯分数,供横向对比)。
 
-匹配器自带合理默认(`includes`/`equals` 默认 gate,`similarity`/judge 默认 soft),可链式改写:
+> 判决只有 **pass / fail / errored / skipped**,没有 `scored` 中间态。"分数不够就 fail" → 用 `.atLeast(x)`(gate);"只想记个分别挂" → 用 `.soft()`。
+
+匹配器自带合理默认(`includes`/`equals` 默认 gate,`similarity`/judge 不带阈值时是 soft 纯分数),可链式改写:
 
 ```typescript
-t.check(t.reply, includes("晴"));            // 默认 gate
-t.check(t.reply, similarity(expected).gate()); // 改成 gate
-t.judge.closedQA("礼貌").atLeast(0.7);        // soft + 阈值 0.7
+t.check(t.reply, includes("晴"));                     // 默认 gate
+t.check(t.reply, similarity(expected).atLeast(0.8));  // 阈值即硬 gate:< 0.8 就 fail
+t.check(t.reply, similarity(expected).soft(0.8));     // 只记分,不挂
+t.judge.closedQA("礼貌");                             // 无阈值 = soft 纯分数(永不挂)
+t.judge.closedQA("礼貌").atLeast(0.7);                // 阈值 = 硬 gate:< 0.7 就 fail
 ```
 
 ## 1. 值级断言(`expect`)
@@ -143,7 +147,7 @@ token 用量是评分的一等维度 —— agent 答对了但烧掉十倍 token
 ```typescript
 t.maxTokens(50_000);            // 整次运行 token 上限,超了判 failed(默认 gate)
 t.maxCost(0.5);                 // 估算成本上限($),需配价格表
-t.maxTokens(80_000).soft();    // 也可降级为 soft,只在 --strict 下红
+t.maxTokens(80_000).soft();    // 也可降级为 soft:只记录,不影响判决
 t.check(t.usage.outputTokens, satisfies((n) => n < 10_000, "输出不啰嗦"));
 ```
 
@@ -157,14 +161,13 @@ t.check(t.usage.outputTokens, satisfies((n) => n < 10_000, "输出不啰嗦"));
 执行出错(超时/异常/作者错误)              → failed
 任一 gate 断言不过                          → failed
 显式 t.skip(reason)                         → skipped
-gate 全过,但有 soft 低于阈值                → scored   (仅 --strict 下算失败)
-否则                                        → passed
+否则                                        → passed   (soft 断言失败不影响这里)
 ```
 
 报告和 CI 还会给每条结果写入互斥的 `outcome`:
 
 ```text
-无执行错误且 verdict=passed/scored          → passed / scored
+无执行错误且 verdict=passed                 → passed
 无执行错误且 verdict=failed                 → failed   (断言不通过)
 有执行错误                                  → errored  (环境、超时、adapter、agent runtime)
 verdict=skipped                             → skipped
@@ -178,13 +181,11 @@ verdict=skipped                             → skipped
 
 | 显示状态 | 含义 | 对应 outcome/verdict |
 |----------|------|----------------------|
-| **pass** | gate 全过(包括 soft 有分但未到阈值) | `passed` + `scored` |
+| **pass** | gate 全过(soft 断言无论高低都不影响) | `passed` |
 | **fail** | 至少一个 gate 不通过 | `failed` |
 | **error** | 执行/环境层错误(超时、crash 等) | `errored` |
 
-`scored` 在视图里归并显示为 **pass**——它的含义是"gate 没挂,只是有 soft 断言没到阈值",并不代表 eval 结果不好用。soft 断言的分数以 chip 形式展示在每条 eval 的详情里,供横向对比质量用。
-
-`--strict` 模式下,`scored` 会被当作失败(CI 卡口用),但展示层不变——只影响进程退出码。
+soft 断言只产出一个分数,**永远不会**让 eval failed;它的分数以 chip / 行尾徽章展示在每条 eval 详情里,供横向对比质量用。要让"分数不够"真的 fail,就用 `.atLeast(x)`(它是 gate)。
 
 多次运行(`runs > 1`)时,eval 的汇总是**通过率**(pass 占比)与平均耗时,而非单一判决。
 
