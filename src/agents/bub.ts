@@ -32,8 +32,6 @@ export interface BubConfig {
 }
 
 const SANDBOX_WORKSPACE = "/home/sandbox/workspace";
-const BUB_HOME = "/home/node/.bub";
-const BUB_CHECKPOINT_PATHS = ["/home/node/.local", "/home/node/.cache/uv"];
 
 const UV = "$HOME/.local/bin/uv";
 const BUB = "$HOME/.local/bin/bub";
@@ -45,33 +43,41 @@ const OTEL_PLUGIN =
   "#subdirectory=packages/bub-tapestore-otel";
 
 const INSTALL_SPEC = `bub --override(${BUB_OVERRIDE}) --with ${OTEL_PLUGIN}`;
-const DISK_CACHE_PATH = join(
-  homedir(),
-  ".cache",
-  "fasteval",
-  `bub-checkpoint-${createHash("md5").update(INSTALL_SPEC).digest("hex").slice(0, 12)}.bin`,
-);
+const INSTALL_HASH = createHash("md5").update(INSTALL_SPEC).digest("hex").slice(0, 12);
 
-// in-memory / disk checkpoint + mutex(跨同一 fasteval 进程内的多条 bub eval 共享)。
-let memCheckpoint: Buffer | undefined;
-let installInProgress: Promise<void> | undefined;
+function diskCachePath(home: string): string {
+  const homeKey = createHash("md5").update(home).digest("hex").slice(0, 8);
+  return join(homedir(), ".cache", "fasteval", `bub-checkpoint-${homeKey}-${INSTALL_HASH}.bin`);
+}
 
-async function ensureBub(sb: Sandbox): Promise<void> {
-  if (memCheckpoint) { await restoreCheckpoint(sb, memCheckpoint); return; }
+// in-memory checkpoint + mutex keyed by sandbox $HOME,
+// so Docker(/home/node)と Vercel(/home/vercel-sandbox)でキャッシュが混ざらない。
+const memCheckpoints = new Map<string, Buffer>();
+const installsInProgress = new Map<string, Promise<void>>();
 
-  const disk = await readFile(DISK_CACHE_PATH).catch(() => undefined);
+async function ensureBub(sb: Sandbox, home: string): Promise<void> {
+  const checkpointPaths = [`${home}/.local`, `${home}/.cache/uv`];
+  const cachePath = diskCachePath(home);
+
+  const mem = memCheckpoints.get(home);
+  if (mem) { await restoreCheckpoint(sb, mem); return; }
+
+  const disk = await readFile(cachePath).catch(() => undefined);
   if (disk) {
-    try { await restoreCheckpoint(sb, disk); memCheckpoint = disk; return; } catch { /* 损坏,回退 */ }
+    try { await restoreCheckpoint(sb, disk); memCheckpoints.set(home, disk); return; } catch { /* 损坏,回退 */ }
   }
 
-  if (installInProgress) {
-    await installInProgress;
-    if (memCheckpoint) { await restoreCheckpoint(sb, memCheckpoint); return; }
+  const inflight = installsInProgress.get(home);
+  if (inflight) {
+    await inflight;
+    const after = memCheckpoints.get(home);
+    if (after) { await restoreCheckpoint(sb, after); return; }
   }
 
   let resolveInstall!: () => void;
   let rejectInstall!: (e: unknown) => void;
-  installInProgress = new Promise<void>((res, rej) => { resolveInstall = res; rejectInstall = rej; });
+  const installPromise = new Promise<void>((res, rej) => { resolveInstall = res; rejectInstall = rej; });
+  installsInProgress.set(home, installPromise);
 
   try {
     await sb.runShell(`test -x ${UV} || (curl -LsSf https://astral.sh/uv/install.sh | sh)`);
@@ -85,21 +91,22 @@ async function ensureBub(sb: Sandbox): Promise<void> {
       last = install;
       if (attempt === 3) throw new Error(`bub 安装失败(重试 3 次):\n${(last.stdout + last.stderr).split("\n").slice(-15).join("\n")}`);
     }
-    memCheckpoint = await createCheckpoint(sb, BUB_CHECKPOINT_PATHS);
-    await mkdir(dirname(DISK_CACHE_PATH), { recursive: true }).catch(() => {});
-    await writeFile(DISK_CACHE_PATH, memCheckpoint).catch(() => {});
+    const cp = await createCheckpoint(sb, checkpointPaths);
+    memCheckpoints.set(home, cp);
+    await mkdir(dirname(cachePath), { recursive: true }).catch(() => {});
+    await writeFile(cachePath, cp).catch(() => {});
     resolveInstall();
   } catch (e) {
     rejectInstall(e);
-    installInProgress = undefined;
+    installsInProgress.delete(home);
     throw e;
   }
 }
 
-function tapePath(workspace: string, sessionId: string): string {
+function tapePath(workspace: string, sessionId: string, bubHome: string): string {
   const w = createHash("md5").update(workspace).digest("hex").slice(0, 16);
   const s = createHash("md5").update(sessionId).digest("hex").slice(0, 16);
-  return `${BUB_HOME}/tapes/${w}__${s}.jsonl`;
+  return `${bubHome}/tapes/${w}__${s}.jsonl`;
 }
 
 function diagnose(
@@ -124,6 +131,8 @@ function tail(s: string, n = 6): string {
 export function bubAgent(config?: BubConfig): Agent {
   const getApiKey = () => config?.apiKey ?? requireEnv("BUB_API_KEY");
   const getApiBase = () => config?.apiBase ?? requireEnv("BUB_API_BASE");
+  // sandboxId → $HOME; persists home detected in setup() so send() can use it.
+  const homeBySession = new Map<string, string>();
 
   return defineSandboxAgent({
     name: "bub",
@@ -139,7 +148,9 @@ export function bubAgent(config?: BubConfig): Agent {
     },
 
     async setup(sb) {
-      await ensureBub(sb);
+      const home = (await sb.runShell("printf '%s' $HOME")).stdout.trim() || "/home/node";
+      homeBySession.set(sb.sandboxId, home);
+      await ensureBub(sb, home);
 
       if (config?.pythonPlugins?.length) {
         const extraWith = config.pythonPlugins.map((p) => `--with '${p}'`).join(" ");
@@ -169,6 +180,8 @@ export function bubAgent(config?: BubConfig): Agent {
 
     async send(input, ctx) {
       const sb = ctx.sandbox;
+      const home = homeBySession.get(sb.sandboxId) ?? "/home/node";
+      const bubHome = `${home}/.bub`;
       const model = ctx.model ?? "gpt-5.4";
       const sessionId = `fe-${sb.sandboxId}`;
       ctx.session.id = sessionId;
@@ -177,7 +190,7 @@ export function bubAgent(config?: BubConfig): Agent {
         BUB_API_KEY: getApiKey(),
         BUB_API_BASE: getApiBase(),
         BUB_MODEL: `openai:${model}`,
-        BUB_HOME,
+        BUB_HOME: bubHome,
         ...ctx.telemetry?.env,
       };
       const escaped = input.text.replace(/'/g, "'\\''");
@@ -186,7 +199,7 @@ export function bubAgent(config?: BubConfig): Agent {
         { env, stream: true },
       );
 
-      const raw = await sb.readFile(tapePath(SANDBOX_WORKSPACE, sessionId)).catch(() => undefined);
+      const raw = await sb.readFile(tapePath(SANDBOX_WORKSPACE, sessionId, bubHome)).catch(() => undefined);
       const parsed = shared.parseBub(raw);
       const events = [...parsed.events];
       if (res.exitCode !== 0) events.push({ type: "error", message: diagnose(res, parsed.events, raw) });
