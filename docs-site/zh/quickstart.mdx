@@ -22,139 +22,26 @@ description: ""
 
 也可以把下面的指令直接交给你的 coding agent：
 
-```text
-READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INIT.md and install fasteval for this repo.
-```
 
 <Steps>
   <Step title="安装">
-    ```bash
-    npm install -D fasteval
-    ```
-  </Step>
-  <Step title="创建目录">
-    ```bash
-    mkdir -p evals
-    ```
-  </Step>
-  <Step title="项目结构">
     ```text
-    evals/
-    fasteval.config.ts
+    READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INIT.md and install fasteval for this repo.
+
+    ```
+  </Step>
+  <Step title="运行测试">
+    ```bash
+    pnpm exec fasteval exp 实验名
+    ```
+  </Step>
+  <Step title="查看结果">
+    ```text
+    npx fasteval view
     ```
   </Step>
 </Steps>
 
-## 配置项目
-
-新建 `fasteval.config.ts`，这是项目级入口：
-
-```ts
-import { defineConfig } from "fasteval";
-
-export default defineConfig({
-  timeoutMs: 300_000
-});
-```
-
-## Eval 1: 进程内函数
-
-适合把 eval 当成语义级单元测试。eval ID 由文件路径推导（`evals/classify.eval.ts` → `classify`）：
-
-```ts evals/classify.eval.ts
-import { defineEval } from "fasteval";
-import { equals } from "fasteval/expect";
-
-function classify(text: string) {
-  return text.includes("refund") ? "refund" : "other";
-}
-
-export default defineEval({
-  description: "Intent classification: refund request",
-  async test(t) {
-    const result = classify("I need a refund for my last order");
-    t.check(result, equals("refund"));
-  },
-});
-```
-
-`--agent` 是必选项。对于不调用 `t.send()` 的纯函数 eval，任意内置 agent 都可以（不会产生实际 agent 交互）：
-
-```bash
-npx fasteval --agent claude-code classify
-```
-
-## Eval 2: 对话 agent
-
-对话 agent 通过 adapter 接入。eval 只描述交互和断言：
-
-```ts evals/weather/brooklyn.eval.ts
-import { defineEval } from "fasteval";
-import { includes } from "fasteval/expect";
-
-export default defineEval({
-  description: "Brooklyn weather query",
-  async test(t) {
-    await t.send("What's the weather in Brooklyn today?");
-    t.succeeded();
-    t.calledTool("get_weather", { input: { city: "Brooklyn" } });
-    t.check(t.reply, includes("sunny"));
-  },
-});
-```
-
-<Note>
-  `agent` 字段（如 `agent: "my-agent"`）仅用于文档说明，不影响运行时路由。要接入自定义 HTTP agent，需用 `defineExperiment` 注册 adapter，然后通过 `npx fasteval exp` 运行——详见 [评估 AI Agent 应用](/zh/example/ai-agent-application)。若使用内置 agent（如 `claude-code`），直接用 `--agent` 指定即可：
-  ```bash
-  npx fasteval --agent claude-code weather/brooklyn
-  ```
-</Note>
-
-## Eval 3: 沙箱里的 coding agent
-
-Coding agent eval 用 `workspace` 指定 agent 的起始代码目录，eval 文件本身对 agent 不可见：
-
-```text
-evals/
-  fixtures/
-    button/           ← agent 可见的 workspace（起始代码）
-      package.json
-      src/
-    button.eval.ts    ← eval 定义（agent 不可见）
-```
-
-```ts evals/fixtures/button.eval.ts
-import { defineEval } from "fasteval";
-
-export default defineEval({
-  description: "实现 Button 组件",
-  workspace: "./fixtures/button",
-  async test(t) {
-    await t.send(
-      "在 src/Button.tsx 里实现一个 Button 组件，支持 variant='primary' | 'secondary'。"
-    );
-    t.succeeded();
-    t.fileChanged("src/Button.tsx");
-    t.testsPassed();
-  },
-});
-```
-
-eval ID 为 `fixtures/button`，用 `--sandbox docker` 在本地容器里隔离运行：
-
-```bash
-npx fasteval --agent claude-code --sandbox docker fixtures/button
-```
-
-## 查看结果
-
-每次运行都会写入 `.fasteval/<timestamp>/`：
-
-```bash
-npx fasteval view
-```
-
-viewer 可以查看每个 eval 的 verdict、transcript、event stream、diff 和测试输出。
 
 ## 放进 CI
 
