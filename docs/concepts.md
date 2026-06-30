@@ -93,5 +93,5 @@
 ## 相关阅读
 
 - [Architecture](architecture.md) —— 这些名词在模块图里各自的位置。
-- [Authoring](authoring.md) —— Eval / Task / Fixture / Dataset 怎么写。
+- [Authoring](eval-authoring.md) —— Eval / Task / Fixture / Dataset 怎么写。
 - [Scoring](scoring.md) —— Scorer / Assertion / Severity / Verdict 的完整手册。

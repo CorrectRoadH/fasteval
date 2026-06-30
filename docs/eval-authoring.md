@@ -72,6 +72,25 @@ export default defineEval({
 
 需要并行的独立会话时用 `t.newSession()` 开一条互不干扰的对话线。
 
+### 多轮里评整段对话
+
+多轮最容易踩的坑:**judge 默认只看最后一轮**(`t.reply`),而 `t.messageIncludes` 这类 run 级断言看的是**所有轮**——作用域不一致。完整的「三层作用域」规则与每条断言看哪一轮,见 [Assertions · 作用域:三层](assertions.md#作用域三层看哪一轮)。
+
+要让 judge 评「整段多轮对话」(典型:跨轮一致性),别用默认材料,把全程对话拼出来显式喂进去:
+
+```typescript
+await t.send("这张图里有什么?");          // 第一轮:看图
+await t.send("背景是什么颜色?");          // 第二、三轮:纯文字追问,考跨轮记忆
+await t.send("中间那个形状是什么颜色的?");
+
+// judge 默认 on: t.reply(最后一轮)。要评"整段三轮",传整段对话:
+t.judge
+  .agent("助手是否始终基于第一轮的图片作答?", { on: t.transcript.text() })
+  .atLeast(0.7);
+```
+
+`t.transcript.text()` 把整次运行的对话拼成 `role: text` 多行文本;需要更原始的控制就用 `t.transcript.events()` 自己过滤拼接。
+
 ## 数据集扇出
 
 一个文件默认导出**一个数组**,就扇出成多个 eval。这是写数据集的规范方式:

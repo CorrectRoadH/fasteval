@@ -207,6 +207,6 @@ Results:  2 passed, 1 failed, 0 scored, 0 skipped
 
 ## 接着读
 
-- [Authoring](authoring.md) —— 多轮、数据集扇出、fixture 进阶。
+- [Authoring](eval-authoring.md) —— 多轮、数据集扇出、fixture 进阶。
 - [Scoring](scoring.md) —— 全部评分手段。
 - [CLI](cli.md) —— 全部命令与标志。

@@ -134,7 +134,7 @@ Official Adapters
 - [Mintlify docs source](docs-site/index.mdx)
 - [Documentation home](docs/README.md)
 - [Getting Started](docs/getting-started.md)
-- [Authoring](docs/authoring.md)
+- [Authoring](docs/eval-authoring.md)
 - [Scoring](docs/scoring.md)
 - [Agents and Adapters](docs/agents-and-adapters.md)
 - [Sandbox](docs/sandbox.md)

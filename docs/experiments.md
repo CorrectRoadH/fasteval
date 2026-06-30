@@ -161,7 +161,7 @@ fasteval exp compare memory/retention  # 再用 eval id 前缀缩小到部分 ev
 
 ## 相关阅读
 
-- [Authoring](authoring.md) —— eval 怎么写(experiment 跑的就是它们)。
+- [Authoring](eval-authoring.md) —— eval 怎么写(experiment 跑的就是它们)。
 - [Lifecycle](lifecycle.md) —— `hooks.run` / `hooks.sandbox` 的 `setup` / `teardown`:环境起停的完整模型。
 - [Observability](observability.md) —— 跨 agent 的质量×成本对比与 `fasteval view`。
 - [Runner](runner.md) —— 矩阵展开、并发、早停、预算的调度。

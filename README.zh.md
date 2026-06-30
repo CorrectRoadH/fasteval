@@ -128,7 +128,7 @@ READ https://raw.githubusercontent.com/CorrectRoadH/fasteval/refs/heads/main/INI
 - [Mintlify 文档源码](docs-site/zh/index.mdx)
 - [文档首页](docs/README.md)
 - [Getting Started](docs/getting-started.md)
-- [Authoring](docs/authoring.md)
+- [Authoring](docs/eval-authoring.md)
 - [Scoring](docs/scoring.md)
 - [Agents and Adapters](docs/agents-and-adapters.md)
 - [Sandbox](docs/sandbox.md)

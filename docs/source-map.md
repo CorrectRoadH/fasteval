@@ -52,7 +52,7 @@
 | LLM-as-judge / agent-as-judge(OpenAI 兼容 /chat/completions) | `src/scoring/judge.ts` |
 | 判决规则(failed / scored / skipped / passed) | `src/scoring/verdict.ts` |
 
-## `t` 上下文与会话([authoring.md](authoring.md))
+## `t` 上下文与会话([eval-authoring.md](eval-authoring.md))
 
 | 行为 | 文件 |
 |---|---|

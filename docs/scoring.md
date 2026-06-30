@@ -60,7 +60,7 @@ t.check(turn.data, satisfies((d) => d.total > 0, "total 为正"));
 ```typescript
 t.succeeded();                       // 运行未失败,且没卡在未回答的人机交互(HITL)上
 t.parked();                          // 干净地停在 HITL 输入上(最后一个事件是 input.requested)
-t.messageIncludes("此致");            // 所有 message 事件拼接文本包含(字符串 / 正则)
+t.messageIncludes("此致");            // run 级:整次运行所有 assistant 消息拼接后包含(字符串 / 正则,跨所有轮)
 ```
 
 **工具 / 动作维度(读 `deriveRunFacts` 的 toolCalls / subagentCalls):**
@@ -124,6 +124,8 @@ t.judge.score("自定义评分标准的一段话", { on: t.reply });
 
 `{ on }` 指定被评的值(默认 `t.reply`),`{ model }` 可单次覆盖评判模型。
 
+> **judge 默认只看最后一轮。** `t.reply` 是最后一条 assistant 消息,所以多轮里直接 `t.judge.agent("整段对话是否…")` 只会拿到最后一轮、证据不足。要评跨轮一致性,把整段对话拼出来传进去:`t.judge.agent("…", { on: t.transcript.text() }).atLeast(0.7)`。每条断言看哪一轮、各自来源,见 [Assertions](assertions.md)(尤其[作用域:三层](assertions.md#作用域三层看哪一轮))。
+
 **模型解析优先级**(高 → 低):单次调用的 `{ model }` → 这个 eval 的 `judge.model` → 配置的 `judge.model`。
 
 ```typescript
@@ -136,7 +138,7 @@ defineEval({ judge: { model: "anthropic/claude-opus-4-8" }, async test(t) { ... 
 
 ## 4. 测试即评分(沙箱型)
 
-沙箱型里,跑 `EVAL.ts`(Vitest)本身就是评分:每个 `test()` 是一条 gate 断言。这让你用熟悉的测试语法表达"什么算对",并能断言文件内容、构建结果、甚至 agent 行为(经 `__fasteval__/results.json`)。详见 [Authoring](authoring.md#沙箱型fixture)。
+沙箱型里,跑 `EVAL.ts`(Vitest)本身就是评分:每个 `test()` 是一条 gate 断言。这让你用熟悉的测试语法表达"什么算对",并能断言文件内容、构建结果、甚至 agent 行为(经 `__fasteval__/results.json`)。详见 [Authoring](eval-authoring.md#沙箱型fixture)。
 
 `validation` 模式控制跑什么:`vitest`(跑 `EVAL.ts` + scripts)或 `none`(只跑 scripts)。
 
@@ -211,6 +213,6 @@ t.check(t.reply, jsonValid());
 
 ## 相关阅读
 
-- [Authoring](authoring.md) —— 断言出现在哪种 eval 里。
+- [Authoring](eval-authoring.md) —— 断言出现在哪种 eval 里。
 - [Observability](observability.md) —— transcript / o11y,作用域断言的数据来源。
 - [Concepts](concepts.md) —— Severity / Verdict 的术语定义。

@@ -778,6 +778,12 @@ export interface TranscriptNamespace {
   /** 本会话自动压缩次数;capability 未声明 / 不可观测 → undefined。 */
   compactions(): number | undefined;
   events(): StreamEvent[];
+  /**
+   * 把整次运行(所有轮)的对话拼成一段可读文本:每条 message 一行 `role: text`。
+   * 给 judge 喂「整段多轮对话」用 —— judge 默认只看最后一轮(`t.reply`),
+   * 要评跨轮一致性就传 `{ on: t.transcript.text() }`。
+   */
+  text(): string;
 }
 
 export interface DiffView {

@@ -166,6 +166,11 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
         compactions: () =>
           compactionsObservable ? deriveRunFacts(manager.allEvents).compactions : undefined,
         events: () => manager.allEvents.slice(),
+        text: () =>
+          manager.allEvents
+            .filter((e): e is Extract<StreamEvent, { type: "message" }> => e.type === "message")
+            .map((e) => `${e.role}: ${e.text}`)
+            .join("\n"),
       },
       file: (path) => new FileRef(path) as unknown as string,
       fileChanged: (path) => collector.record(Scoped.fileChanged(path)),

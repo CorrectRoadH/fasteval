@@ -25,12 +25,16 @@ export default defineEval({
 
     await t.group("后续追问能联系图片上下文", () => {
       // 第二轮问背景色，助手应答"蓝"；第三轮问形状颜色，应答"白"
-      // t.messageIncludes 看的是会话中最后一条 assistant 消息
+      // 注意：t.messageIncludes 是 run 级断言，拼接整次运行所有 assistant 消息（不只最后一轮）。
       t.messageIncludes(/白|white/i);
     });
 
+    // judge 默认只看最后一轮（t.reply）。这条问的是"整段三轮对话"，
+    // 所以把全程对话用 t.transcript.text() 拼出来喂给裁判，否则它只看到最后一句、证据不足。
     t.judge
-      .agent("助手是否在三轮对话中始终基于第一轮发送的图片内容作答，而不是凭空发挥？")
+      .agent("助手是否在三轮对话中始终基于第一轮发送的图片内容作答，而不是凭空发挥？", {
+        on: t.transcript.text(),
+      })
       .atLeast(0.7);
   },
 });
