@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
 import { Check, ChevronRight, Copy } from "lucide-react";
@@ -13,6 +13,22 @@ const initialData = window.__FASTEVAL_VIEW_DATA__ ?? {
   cost: "$0",
 };
 
+function resultFromUrl(rows) {
+  const p = new URLSearchParams(location.search);
+  const id = p.get("modal");
+  if (!id) return null;
+  const exp = p.get("exp");
+  const attempt = parseInt(p.get("a") ?? "0", 10);
+  for (const row of rows) {
+    for (const result of row.results ?? []) {
+      if (result.id === id && (!exp || result.experimentId === exp) && result.attempt === attempt) {
+        return result;
+      }
+    }
+  }
+  return null;
+}
+
 function App({ data }) {
   const rows = data.rows ?? [];
   const [tab, setTab] = useState("experiments");
@@ -23,6 +39,21 @@ function App({ data }) {
     const groups = [...new Set(rows.map((r) => r.group).filter(Boolean))].sort();
     return groups[0] ?? null;
   });
+  const [modalResult, setModalResult] = useState(() => resultFromUrl(rows));
+
+  const openModal = useCallback((result) => {
+    setModalResult(result);
+    const p = new URLSearchParams();
+    p.set("modal", result.id);
+    if (result.experimentId) p.set("exp", result.experimentId);
+    p.set("a", String(result.attempt));
+    history.replaceState(null, "", "?" + p.toString());
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setModalResult(null);
+    history.replaceState(null, "", location.pathname);
+  }, []);
 
   const groupMap = useMemo(() => buildGroupMap(rows), [rows]);
   const pool = selectedGroup ? groupMap.get(selectedGroup) ?? [] : rows;
@@ -120,6 +151,7 @@ function App({ data }) {
                 setSortKey={setSortKey}
                 openRows={openRows}
                 toggleRow={toggleRow}
+                openModal={openModal}
               />
             ) : (
               <div className="empty">
@@ -133,6 +165,7 @@ function App({ data }) {
         {tab === "runs" && <RunsView rows={rows} />}
         {tab === "traces" && <TracesView rows={rows} />}
       </main>
+      {modalResult && <AttemptModal result={modalResult} onClose={closeModal} />}
     </>
   );
 }
@@ -193,7 +226,7 @@ function GroupSelector({ groupMap, selectedGroup, onSelect }) {
   );
 }
 
-function ExperimentTable({ rows, sort, setSortKey, openRows, toggleRow }) {
+function ExperimentTable({ rows, sort, setSortKey, openRows, toggleRow, openModal }) {
   return (
     <div className="table-wrap">
       <table>
@@ -213,7 +246,7 @@ function ExperimentTable({ rows, sort, setSortKey, openRows, toggleRow }) {
           {rows.map((row) => (
             <React.Fragment key={row.key}>
               <ExperimentRow row={row} open={openRows.has(row.key)} onToggle={() => toggleRow(row.key)} />
-              {openRows.has(row.key) ? <ExperimentDetail row={row} /> : null}
+              {openRows.has(row.key) ? <ExperimentDetail row={row} openModal={openModal} /> : null}
             </React.Fragment>
           ))}
         </tbody>
@@ -268,7 +301,7 @@ function ExperimentRow({ row, open, onToggle }) {
   );
 }
 
-function ExperimentDetail({ row }) {
+function ExperimentDetail({ row, openModal }) {
   const totalDuration = (row.results ?? []).reduce((sum, r) => sum + (r.durationMs || 0), 0);
   const sampleResult =
     row.results?.find((r) => outcomeOf(r) === "errored") ||
@@ -309,7 +342,7 @@ function ExperimentDetail({ row }) {
               <span>Run</span>
             </div>
             {results.map((result) => (
-              <Attempt key={`${result.id}-${result.attempt}`} result={result} totalRuns={row.runs} />
+              <Attempt key={`${result.id}-${result.attempt}`} result={result} totalRuns={row.runs} openModal={openModal} />
             ))}
           </div>
           <details className="raw-details">
@@ -335,8 +368,7 @@ function Kpi({ label, value, className = "", title }) {
   );
 }
 
-function Attempt({ result, totalRuns }) {
-  const [modalOpen, setModalOpen] = useState(false);
+function Attempt({ result, totalRuns, openModal }) {
   const outcome = outcomeOf(result);
   const gates = failingAssertions(result);
   const reason = reasonFor(result, gates);
@@ -344,22 +376,25 @@ function Attempt({ result, totalRuns }) {
   const hasScores = allAssertions.some((a) => a.score !== undefined && a.score !== null);
   const hasBody = result.hasEvents || result.hasTrace || hasScores;
 
-  // Inline hint in the reason cell for passed evals that have soft scores
   const inlineScores = !reason && outcome === "passed" ? scoresSummary(allAssertions) : "";
   const displayReason = reason || inlineScores;
+
+  const handleOpen = hasBody ? () => openModal(result) : null;
 
   const cells = (
     <>
       <span className="attempt-status">
-        {hasBody ? <ChevronRight className="attempt-chev" aria-hidden="true" /> : null}
         <span className={outcomeClass(outcome)}>{outcomeLabel(outcome)}</span>
       </span>
       <span className="eval-id">{result.id}</span>
       <div className="assertions-cell">
-        <span className="assertions" title={displayReason || undefined}>
+        <span
+          className={`assertions${hasBody ? " assertions-link" : ""}`}
+          title={displayReason || undefined}
+          onClick={handleOpen ? (e) => { e.stopPropagation(); handleOpen(); } : undefined}
+        >
           {displayReason || <span className="reason-empty">—</span>}
         </span>
-        {reason ? <CopyReason text={reason} /> : null}
       </div>
       <span className="num">
         {formatDuration(result.durationMs)}
@@ -378,26 +413,101 @@ function Attempt({ result, totalRuns }) {
   }
 
   return (
-    <>
-      <div
-        className="eval-item eval-item-clickable"
-        role="button"
-        tabIndex={0}
-        onClick={() => setModalOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setModalOpen(true); }
-        }}
-      >
-        {cells}
-      </div>
-      {modalOpen && (
-        <AttemptModal result={result} allAssertions={allAssertions} hasScores={hasScores} onClose={() => setModalOpen(false)} />
-      )}
-    </>
+    <div
+      className="eval-item eval-item-clickable"
+      role="button"
+      tabIndex={0}
+      onClick={handleOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleOpen(); }
+      }}
+    >
+      {cells}
+    </div>
   );
 }
 
-function AttemptModal({ result, allAssertions, hasScores, onClose }) {
+function buildTurns(events) {
+  const turns = [];
+  let userText = null;
+  let replies = [];
+  for (const ev of events) {
+    if (ev.type === "message" && ev.role === "user") {
+      if (userText !== null) turns.push({ user: userText, replies });
+      userText = ev.text || "";
+      replies = [];
+    } else if (ev.type === "message" && ev.role === "assistant") {
+      replies.push({ kind: "text", text: ev.text || "" });
+    } else if (ev.type === "thinking") {
+      replies.push({ kind: "thinking", text: ev.text || "" });
+    } else if (ev.type === "action.called") {
+      replies.push({ kind: "tool", ev });
+    }
+  }
+  if (userText !== null) turns.push({ user: userText, replies });
+  return turns;
+}
+
+function ConversationTurns({ src }) {
+  const [turns, setTurns] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/artifact?p=" + encodeURIComponent(src))
+      .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then((events) => setTurns(buildTurns(events)))
+      .catch((e) => setError(String(e)));
+  }, [src]);
+
+  if (error) return <div className="conv-error">{error}</div>;
+  if (!turns) return <div className="conv-loading">loading…</div>;
+  if (!turns.length) return null;
+
+  return (
+    <div className="conv-turns">
+      {turns.map((turn, i) => (
+        <details key={i} className="conv-turn">
+          <summary className="conv-user">
+            <span className="conv-label">user</span>
+            <span className="conv-text">{truncate(turn.user, 200)}</span>
+          </summary>
+          <div className="conv-replies">
+            {turn.replies.map((r, j) => {
+              if (r.kind === "text") return (
+                <div key={j} className="conv-assistant">
+                  <span className="conv-label">assistant</span>
+                  <span className="conv-text">{r.text}</span>
+                </div>
+              );
+              if (r.kind === "thinking") return (
+                <details key={j} className="conv-think">
+                  <summary>thinking</summary>
+                  <div className="conv-think-text">{r.text}</div>
+                </details>
+              );
+              if (r.kind === "tool") {
+                const verb = TOOL_VERB[r.ev.tool] || r.ev.name || r.ev.tool || "tool";
+                const arg = toolPrimaryArg(r.ev);
+                return (
+                  <div key={j} className="conv-tool">
+                    <span className="conv-tool-name">{arg ? `${verb}(${truncate(arg, 60)})` : verb}</span>
+                  </div>
+                );
+              }
+              return null;
+            })}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function AttemptModal({ result, onClose }) {
+  const allAssertions = result.assertions || [];
+  const hasScores = allAssertions.some((a) => a.score !== undefined && a.score !== null);
+  const hasConversation = result.hasEvents && result.artifactBase;
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
@@ -408,13 +518,16 @@ function AttemptModal({ result, allAssertions, hasScores, onClose }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span className="modal-title">{result.id}</span>
+          <div className="modal-title-block">
+            <span className="modal-title">{result.id}</span>
+            {result.description ? <span className="modal-desc">{result.description}</span> : null}
+          </div>
           <button className="modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
         <div className="modal-body">
           {hasScores ? <AssertionScores assertions={allAssertions} /> : null}
-          {result.hasEvents && result.artifactBase ? (
-            <LazyArtifact type="transcript" src={`${result.artifactBase}/events.json`} />
+          {hasConversation ? (
+            <ConversationTurns src={`${result.artifactBase}/events.json`} />
           ) : null}
           {result.hasTrace && result.artifactBase ? (
             <LazyArtifact type="trace" src={`${result.artifactBase}/trace.json`} />
@@ -427,22 +540,64 @@ function AttemptModal({ result, allAssertions, hasScores, onClose }) {
 }
 
 function AssertionScores({ assertions }) {
-  const scored = (assertions || []).filter((a) => a.score !== undefined && a.score !== null);
-  if (!scored.length) return null;
+  const all = (assertions || []).filter((a) => a.score !== undefined && a.score !== null);
+  if (!all.length) return null;
+
+  // 按代码顺序分组，保留首次出现顺序
+  const groups = [];
+  const seen = new Map();
+  for (const a of all) {
+    const key = a.group ?? "\0ungrouped";
+    if (!seen.has(key)) {
+      seen.set(key, []);
+      groups.push({ key, label: a.group ?? null, items: seen.get(key) });
+    }
+    seen.get(key).push(a);
+  }
+
+  const renderRow = (a, i) => {
+    const cls = a.passed ? "good" : a.severity === "gate" ? "bad" : "warn";
+    const inner = (
+      <>
+        <span className={`al-score ${cls}`}>
+          {formatPercent(a.score)}
+          {a.threshold !== undefined ? <span className="al-threshold">/{formatPercent(a.threshold)}</span> : null}
+        </span>
+        <span className="al-name">{a.name}</span>
+        <span className={`al-badge al-badge-${cls}`}>{a.passed ? "pass" : a.severity === "gate" ? "fail" : "soft"}</span>
+      </>
+    );
+    return a.detail ? (
+      <details key={i} className="al-row al-row-detail">
+        <summary className="al-row-inner">{inner}</summary>
+        <pre className="al-detail">{a.detail}</pre>
+      </details>
+    ) : (
+      <div key={i} className="al-row">
+        <div className="al-row-inner">{inner}</div>
+      </div>
+    );
+  };
+
   return (
-    <div className="assertion-scores">
-      {scored.map((a, i) => {
-        const cls = a.passed ? "good" : a.severity === "gate" ? "bad" : "warn";
-        return (
-          <span key={i} className={`score-chip score-chip-${cls}`}>
-            <span className="score-name">{a.name}</span>
-            <span className="score-val">
-              {formatPercent(a.score)}
-              {a.threshold !== undefined ? <span className="score-threshold">/{formatPercent(a.threshold)}</span> : null}
-            </span>
-          </span>
-        );
-      })}
+    <div className="assertion-list">
+      {groups.map(({ key, label, items }) =>
+        label ? (
+          <details key={key} className="al-group-block">
+            <summary className="al-group-header">
+              {label}
+              {(() => {
+                const allPass = items.every((a) => a.passed);
+                const cls = allPass ? "good" : "bad";
+                return <span className={`al-badge al-badge-${cls} al-group-badge`}>{allPass ? "pass" : "fail"}</span>;
+              })()}
+            </summary>
+            {items.map(renderRow)}
+          </details>
+        ) : (
+          <React.Fragment key={key}>{items.map(renderRow)}</React.Fragment>
+        )
+      )}
     </div>
   );
 }
@@ -516,8 +671,8 @@ function CopyAllErrors({ rows }) {
   );
 }
 
-function LazyArtifact({ type, src }) {
-  const [open, setOpen] = useState(false);
+function LazyArtifact({ type, src, autoLoad = false }) {
+  const [open, setOpen] = useState(autoLoad);
   const [loaded, setLoaded] = useState(false);
   const [content, setContent] = useState(null);
   const [error, setError] = useState("");
@@ -535,6 +690,10 @@ function LazyArtifact({ type, src }) {
       setError(`load failed (static report has no server - use fasteval view): ${String(e)}`);
     }
   };
+
+  useEffect(() => {
+    if (autoLoad) void load();
+  }, []);
 
   return (
     <details

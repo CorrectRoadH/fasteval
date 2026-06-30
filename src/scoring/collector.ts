@@ -4,6 +4,11 @@
 import type { AssertionResult, ScoringContext, Severity } from "../types.ts";
 import { t } from "../i18n/index.ts";
 
+export interface EvalScore {
+  score: number;
+  detail?: string;
+}
+
 /** 一条尚未评估的断言。evaluate 在 finalize 时拿到完整运行结果再算分 [0,1]。 */
 export interface Spec {
   name: string;
@@ -12,7 +17,7 @@ export interface Spec {
   detail?: string;
   /** 所属分组(t.group 标题,可嵌套用 › 连接)。纯组织用,不影响打分。 */
   group?: string;
-  evaluate(ctx: ScoringContext): number | Promise<number>;
+  evaluate(ctx: ScoringContext): number | EvalScore | Promise<number | EvalScore>;
 }
 
 /** 作者拿到的可链式句柄,改严重级 / 阈值(回头改 spec)。 */
@@ -71,7 +76,13 @@ export class AssertionCollector {
       let score = 0;
       let detail = spec.detail;
       try {
-        score = await spec.evaluate(ctx);
+        const raw = await spec.evaluate(ctx);
+        if (typeof raw === "number") {
+          score = raw;
+        } else {
+          score = raw.score;
+          if (raw.detail) detail = detail ? `${detail}; ${raw.detail}` : raw.detail;
+        }
       } catch (e) {
         score = 0;
         detail = `${detail ? detail + "; " : ""}${t("scoring.evalError", {

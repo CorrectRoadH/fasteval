@@ -8,7 +8,7 @@
 // 共享同一套实现。agent / score 是我们自己的开放式评判,不在 autoevals 里。
 
 import { ClosedQA, Factuality, Summary } from "autoevals";
-import type { AssertionCollector } from "./collector.ts";
+import type { AssertionCollector, EvalScore } from "./collector.ts";
 import type { AssertionHandle, AutoevalsNamespace, JudgeConfig, JudgeNamespace, ScoringContext } from "../types.ts";
 import { getEnv } from "../util.ts";
 import { t } from "../i18n/index.ts";
@@ -35,13 +35,13 @@ function resolveJudge(judge: JudgeConfig | undefined): ResolvedJudge {
   return { model, baseUrl, apiKey };
 }
 
-/** 调评判模型,返回 [0,1] 的分。失败抛(collector 会兜成 0 分)。 */
+/** 调评判模型,返回分数和原始推理文本。失败抛(collector 会兜成 0 分)。 */
 async function callJudge(
   judge: ResolvedJudge,
   system: string,
   user: string,
   signal?: AbortSignal,
-): Promise<number> {
+): Promise<EvalScore> {
   if (!judge.apiKey) throw new Error(t("judge.apiKeyMissing"));
   const url = `${judge.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const res = await fetch(url, {
@@ -68,7 +68,7 @@ async function callJudge(
     choices?: { message?: { content?: string } }[];
   };
   const content = data.choices?.[0]?.message?.content ?? "";
-  return parseScore(content);
+  return { score: parseScore(content), detail: content || undefined };
 }
 
 /** 从模型回复里抠出 [0,1] 分。优先 JSON {score},否则取第一个数字。 */
@@ -200,7 +200,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
           ...autoevalsBase,
           ...(opts?.model ? { model: opts.model } : {}),
         });
-        return clamp01(result.score ?? 0);
+        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined };
       },
     });
 
@@ -217,7 +217,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
           ...autoevalsBase,
           ...(opts?.model ? { model: opts.model } : {}),
         });
-        return clamp01(result.score ?? 0);
+        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined };
       },
     });
 
@@ -234,7 +234,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
           ...autoevalsBase,
           ...(opts?.model ? { model: opts.model } : {}),
         });
-        return clamp01(result.score ?? 0);
+        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined };
       },
     });
 

@@ -91,6 +91,7 @@ export const zhCN = {
   "runner.timeout": "attempt 超时({{timeoutMs}}ms)\n最近进度:\n{{recentLogs}}",
   "runner.traceSelected": " → 留 {{count}}(按语义)",
   "runner.uploadWorkspace": "上传 workspace({{count}} 文件)",
+  "runner.resumeCarry": "  · resume: 复用 {{carried}} 个上次通过的结果,重跑 {{retry}} 个 eval\n",
   "runner.useRemoteAgent": "使用 remote agent(不创建沙箱)…",
   "sandbox.backendNotImplemented": "{{backend}} sandbox backend not implemented; use docker, vercel, or e2b",
   "sandbox.dependencyMissing.docker": "Docker sandbox requires 'dockerode'. Install it with: pnpm add dockerode @types/dockerode",

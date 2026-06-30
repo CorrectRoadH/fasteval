@@ -69,6 +69,8 @@ export interface RunOptions {
   signal?: AbortSignal;
   /** TTY live display 的进度回调;设置后 attempt 的 log 消息路由到它而不是 stderr。 */
   onProgress?: (evalId: string, who: string, msg: string) => void;
+  /** 上次运行的结果。outcome === "passed"/"scored" 的 (experimentId, evalId) 组合跳过重跑,结果直接合入本次汇总。 */
+  priorResults?: EvalResult[];
 }
 
 interface Attempt {
@@ -102,6 +104,25 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     }
   }
 
+  // 跨实验结果复用(--resume):找出上次已通过的 (experimentId, evalId) 组合,跳过重跑。
+  // 已通过的结果直接携入本次汇总;失败/报错的正常入队重跑。
+  const priorPassedKeys = new Set<string>();
+  const carriedResults: EvalResult[] = [];
+  if (opts.priorResults?.length) {
+    for (const r of opts.priorResults) {
+      if (!r.experimentId) continue;
+      const priorOutcome: string = r.outcome ?? (r.error !== undefined ? "errored" : r.verdict);
+      if (priorOutcome === "passed" || priorOutcome === "scored") {
+        priorPassedKeys.add(`${r.experimentId}|${r.id}`);
+      }
+    }
+    for (const r of opts.priorResults) {
+      if (!r.experimentId || !priorPassedKeys.has(`${r.experimentId}|${r.id}`)) continue;
+      // 去掉工件引用:工件文件在旧 run 目录,新 summary 里的相对路径会失效。
+      carriedResults.push({ ...r, artifactsDir: undefined, artifactBase: undefined, artifactAbsBase: undefined });
+    }
+  }
+
   // 展开 attempts
   // 外层按「round」(run index)迭代,内层按 eval 迭代,目的是让同一 key 的第 i+1 次
   // attempt 排在所有 eval 的第 i 次之后 —— 这样当 earlyExit 开启时,第 0 轮某 eval 通过后、
@@ -112,10 +133,16 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     const evals = opts.evals.filter((e) => run.evalFilter(e.id));
     for (let i = 0; i < run.runs; i++) {
       for (const evalDef of evals) {
+        if (run.experimentId && priorPassedKeys.has(`${run.experimentId}|${evalDef.id}`)) continue;
         const key = `${run.agent.name}|${run.model ?? ""}|${evalDef.id}`;
         attempts.push({ evalDef, run, attempt: i, key });
       }
     }
+  }
+
+  if (carriedResults.length > 0) {
+    const retryCount = new Set(attempts.map((a) => `${a.run.experimentId ?? ""}|${a.evalDef.id}`)).size;
+    process.stderr.write(t("runner.resumeCarry", { carried: carriedResults.length, retry: retryCount }));
   }
 
   // onRunStart 报「本次实际要跑的 eval」(过滤 + 去重),不是发现到的全部 —— 否则计数误导。
@@ -237,16 +264,17 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     for (const td of runTeardowns.reverse()) await runReporter("run.teardown", td);
   }
 
-  // 稳定排序:按发现顺序 + attempt
+  // 稳定排序:按发现顺序 + attempt;携带结果并入后一起排
   const order = new Map(opts.evals.map((e, i) => [e.id, i]));
-  results.sort(
+  const allResults = [...carriedResults, ...results];
+  allResults.sort(
     (a, b) =>
       (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0) ||
       a.agent.localeCompare(b.agent) ||
       a.attempt - b.attempt,
   );
 
-  const summary = summarize(results, firstAgent?.name ?? "", startedAt, Date.now() - t0);
+  const summary = summarize(allResults, firstAgent?.name ?? "", startedAt, Date.now() - t0);
   for (const r of opts.reporters) {
     await runReporter("onRunComplete", () => r.onRunComplete?.(summary));
   }
@@ -363,6 +391,7 @@ function runAttemptEffect(
 
   const base: EvalResult = {
     id: evalDef.id,
+    description: evalDef.description,
     experimentId: run.experimentId,
     experiment: experimentRunInfo(run),
     agent: run.agent.name,

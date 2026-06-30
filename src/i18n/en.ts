@@ -93,6 +93,7 @@ export const en = {
   "runner.timeout": "attempt timed out ({{timeoutMs}}ms)\nRecent progress:\n{{recentLogs}}",
   "runner.traceSelected": " -> kept {{count}} semantic spans",
   "runner.uploadWorkspace": "uploaded workspace ({{count}} files)",
+  "runner.resumeCarry": "  · resume: carrying forward {{carried}} passing results, re-running {{retry}} evals\n",
   "runner.useRemoteAgent": "using remote agent (no sandbox created)...",
   "sandbox.backendNotImplemented": "{{backend}} sandbox backend is not implemented; use docker, vercel, or e2b",
   "sandbox.dependencyMissing.docker": "Docker sandbox requires 'dockerode'. Install it with: pnpm add dockerode @types/dockerode",

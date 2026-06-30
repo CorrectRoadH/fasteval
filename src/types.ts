@@ -549,6 +549,7 @@ export interface ExperimentRunInfo {
 
 export interface EvalResult {
   id: string;
+  description?: string;
   experimentId?: string;
   experiment?: ExperimentRunInfo;
   agent: string;

@@ -58,6 +58,13 @@ const TEMPLATE_PLACEHOLDERS = {
   viewData: "__FASTEVAL_VIEW_DATA_JSON__",
 } as const;
 
+/** 读最近一次运行的所有 EvalResult，供 --resume 跳过已通过的 eval。 */
+export async function loadMostRecentResults(root = ".fasteval"): Promise<EvalResult[]> {
+  const summaries = await loadSummaries(root);
+  // loadSummaries 已按 startedAt 降序，第一个是最新的
+  return summaries[0]?.summary.results ?? [];
+}
+
 export async function buildView(opts: ViewOptions = {}): Promise<string> {
   const summaries = await loadSummaries(opts.input);
   const out = resolve(opts.out ?? ".fasteval/report.html");
@@ -278,7 +285,7 @@ function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
       errored: results.filter((r) => resultOutcome(r) === "errored").length,
       scored: results.filter((r) => resultOutcome(r) === "scored").length,
       skipped: results.filter((r) => resultOutcome(r) === "skipped").length,
-      passRate: results.length ? results.filter((r) => r.verdict === "passed").length / results.length : 0,
+      passRate: results.length ? results.filter((r) => { const o = resultOutcome(r); return o === "passed" || o === "scored"; }).length / results.length : 0,
       avgDurationMs: avg(results.map((r) => r.durationMs)),
       usage: sumUsage(results.map((r) => r.usage)),
       estimatedCostUSD: cost,
@@ -295,7 +302,7 @@ function resultOutcome(result: EvalResult): EvalResult["outcome"] {
 
 function summarizeAll(loaded: LoadedSummary[]) {
   const results = loaded.flatMap((s) => s.summary.results);
-  const passed = results.filter((r) => r.verdict === "passed").length;
+  const passed = results.filter((r) => { const o = resultOutcome(r); return o === "passed" || o === "scored"; }).length;
   return {
     results: results.length,
     passRate: results.length ? passed / results.length : 0,

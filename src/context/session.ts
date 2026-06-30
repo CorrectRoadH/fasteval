@@ -70,9 +70,9 @@ export class SessionManager {
     const t0 = Date.now();
 
     session.lastInput = text;
+    this.allEvents.push({ type: "message", role: "user", text });
     const turn = await this.deps.agent.send({ text, files }, ctx);
 
-    this.allEvents.push({ type: "message", role: "user", text });
     this.allEvents.push(...turn.events);
     if (turn.usage) accumulateUsage(this.usage, turn.usage);
     session.isNew = false;

@@ -19,7 +19,7 @@ import { sandboxRecommendedConcurrency } from "./sandbox/resolve.ts";
 import { Console as ConsoleReporter } from "./runner/reporters/console.ts";
 import { Live as LiveReporter, type LiveRow } from "./runner/reporters/live.ts";
 import { Artifacts as ArtifactsReporter } from "./runner/reporters/artifacts.ts";
-import { buildView, startViewServer } from "./view/index.ts";
+import { buildView, startViewServer, loadMostRecentResults } from "./view/index.ts";
 import { t } from "./i18n/index.ts";
 import type { Config, DiscoveredExperiment, Reporter } from "./types.ts";
 
@@ -34,6 +34,7 @@ interface Flags {
   dry: boolean;
   strict: boolean;
   quiet: boolean;
+  resume: boolean;
   open?: boolean;
   out?: string;
   port?: number;
@@ -43,6 +44,7 @@ const BOOL_FLAGS = new Set([
   "dry",
   "strict",
   "quiet",
+  "resume",
   "early-exit",
   "no-early-exit",
   "open",
@@ -55,7 +57,7 @@ const BOOL_FLAGS = new Set([
 function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
   if (argv[0] === "--") argv = argv.slice(1);
   const positionals: string[] = [];
-  const flags: Flags = { dry: false, strict: false, quiet: false };
+  const flags: Flags = { dry: false, strict: false, quiet: false, resume: false };
   let command = "run";
   let i = 0;
 
@@ -90,6 +92,7 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
         if (name === "dry") flags.dry = true;
         else if (name === "strict") flags.strict = true;
         else if (name === "quiet") flags.quiet = true;
+        else if (name === "resume") flags.resume = true;
         continue;
       }
       const value = argv[++i];
@@ -374,6 +377,8 @@ async function main(): Promise<void> {
   const sandboxRecs = agentRuns.map((r) => sandboxRecommendedConcurrency(r.sandbox));
   const sandboxDefaultConcurrency = sandboxRecs.length > 0 ? Math.min(...sandboxRecs) : 10;
 
+  const priorResults = flags.resume ? await loadMostRecentResults(join(cwd, ".fasteval")) : undefined;
+
   const summary = await runEvals({
     config,
     evals,
@@ -382,6 +387,7 @@ async function main(): Promise<void> {
     maxConcurrency: flags.maxConcurrency ?? expMaxConcurrency ?? config.maxConcurrency ?? sandboxDefaultConcurrency,
     signal: ctrl.signal,
     onProgress,
+    priorResults,
   });
 
   // 正常返回(含被中断后走部分汇总)后再兜一刀:Scope finalizer 没停掉的残留沙箱在这里强清。
