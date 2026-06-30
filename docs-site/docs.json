@@ -106,6 +106,9 @@
                 "pages": [
                   "zh/introduction",
                   "zh/quickstart",
+                  "zh/guides/claude-code-codex-plugin",
+                  "zh/guides/claude-code-codex-skill",
+                  "zh/guides/ai-agent-application",
                   "zh/installation"
                 ]
               },

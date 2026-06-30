@@ -1,0 +1,98 @@
+---
+title: "Eval 你的 Claude Code / Codex Skill"
+sidebarTitle: "Skill Eval"
+description: "用 fasteval 评估 Claude Code / Codex Skill：验证 Skill 是否被触发、是否按预期使用工具，并最终完成真实任务。"
+---
+
+Skill 的难点不只是“最后答案对不对”，还包括 agent 是否在正确场景加载 Skill、是否遵循 Skill 里的流程、是否调用了该调用的工具。fasteval 适合把这些都变成可重复运行的 eval。
+
+这类 eval 通常也走 **Sandbox 模式**。你给 agent 一个真实任务，让它在带 Skill 的环境中执行；验证阶段检查产物、测试结果和行为痕迹。
+
+## 适合评什么
+
+- Skill 是否会被正确触发。
+- Skill 指令是否让 agent 走预期流程。
+- Skill 是否改善 pass rate、成本或耗时。
+- Skill 是否避免了错误工具、错误文件或错误命令。
+- Skill 在 Claude Code 和 Codex 上是否都能工作。
+
+## 推荐 fixture 形状
+
+```text
+evals/fixtures/skills/schema-parser/
+├─ PROMPT.md
+├─ EVAL.ts
+├─ package.json
+├─ skills/
+│  └─ schema-parser/
+│     └─ SKILL.md
+└─ src/
+```
+
+如果 Skill 本来就在你的项目里，也可以只把项目当前 workspace 作为 fixture 起点；关键是让 eval 能稳定复现 Skill 使用场景。
+
+## 写任务
+
+```md PROMPT.md
+Use the schema-parser skill to add validation for `src/input.ts`.
+
+Requirements:
+- define a schema for the input object
+- reject missing `email`
+- reject invalid `age`
+- keep the exported function name unchanged
+```
+
+Prompt 不需要说“你必须打开某个测试文件”。你要测试的是 Skill 是否能引导 agent 自己找到正确做法。
+
+## 写验证
+
+```ts EVAL.ts
+import { test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+test("adds schema validation", () => {
+  const src = readFileSync("src/input.ts", "utf-8");
+  expect(src).toContain("email");
+  expect(src).toContain("age");
+  expect(src).toMatch(/schema|Schema|zod|validator/);
+});
+
+test("project tests pass", async () => {
+  // 如果 package.json 里已有 test 脚本，fasteval 会在验证阶段跑它。
+  expect(true).toBe(true);
+});
+```
+
+如果 agent 的 transcript 会暴露 Skill 加载事件，可以用 o11y 或 event stream 检查；如果不同 agent 的事件名不稳定，优先验证最终产物和真实测试。
+
+## 运行
+
+```bash
+npx fasteval --agent claude-code --sandbox docker fixtures/skills/schema-parser
+npx fasteval --agent codex --sandbox docker fixtures/skills/schema-parser
+```
+
+## 评估 Skill 是否真的有用
+
+最小对照方式：
+
+1. 一组运行启用 Skill。
+2. 一组运行不启用 Skill。
+3. 使用同一批 fixtures。
+4. 比较 pass rate、平均耗时、token 和失败类型。
+
+Skill 有用不等于“偶尔能过一次”。更重要的是它是否稳定降低失败率，并且不会显著增加成本或让 agent 误入错误流程。
+
+## Copy to your agent
+
+```text
+READ docs-site/zh/guides/claude-code-codex-skill.mdx and install fasteval for this repo.
+Create one fixture that requires the skill, one baseline run without the skill, and compare pass rate.
+```
+
+## 下一步
+
+- [Fixtures](/zh/guides/fixtures) — 组织任务和验证脚本。
+- [Experiments](/zh/guides/experiments) — 做有 Skill / 无 Skill 的对照实验。
+- [评分指南](/zh/guides/scoring-guide) — 把最终结果和行为约束一起评分。

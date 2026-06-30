@@ -1,0 +1,111 @@
+---
+title: "Eval 你的 Claude Code / Codex 插件"
+sidebarTitle: "插件 Eval"
+description: "用 fasteval 评估 Claude Code / Codex 插件、Hook 或 MCP 集成：创建 sandbox fixture，运行 coding agent，并用测试、diff 和工具调用验证行为。"
+---
+
+如果你在给 Claude Code 或 Codex 写插件、Hook、MCP server 或项目级扩展，最可靠的 eval 方式是把它放进真实 workspace，让 coding agent 执行一组任务，再用测试验证结果。
+
+这类 eval 走 **Sandbox 模式**：agent 在 Docker 或云端 sandbox 中运行，能读写文件、执行命令、调用你的插件；`EVAL.ts` 在验证阶段才出现，避免 agent 提前看到答案。
+
+## 适合评什么
+
+- 插件是否能正确暴露工具或命令。
+- Hook 是否在正确时机生效。
+- MCP server 是否能被 agent 调用，并返回可用结果。
+- 插件是否让 agent 更稳定地完成真实编码任务。
+- 不同 agent、model 或插件版本的 pass rate 差异。
+
+## 推荐目录结构
+
+```text
+evals/fixtures/plugin/create-button/
+├─ PROMPT.md
+├─ EVAL.ts
+├─ package.json
+├─ tsconfig.json
+└─ src/
+```
+
+`PROMPT.md` 写给 agent 看，描述真实任务。`EVAL.ts` 写给 fasteval 看，验证任务是否完成。插件安装、配置或 token 可以放在 fixture 文件、sandbox hook 或 agent adapter 的 setup 里。
+
+## 写任务
+
+```md PROMPT.md
+Use the project plugin to create `src/components/Button.tsx`.
+
+The component must:
+- accept `label: string`
+- accept `onClick: () => void`
+- render a native `<button>`
+- pass the existing test suite
+```
+
+任务应该像真实用户请求，不要写测试答案。你想验证插件是否被使用，可以在 `EVAL.ts` 里检查结果，也可以检查 o11y 摘要里的工具调用或 shell 命令。
+
+## 写验证
+
+```ts EVAL.ts
+import { test, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+
+test("created Button component", () => {
+  expect(existsSync("src/components/Button.tsx")).toBe(true);
+});
+
+test("supports required props", () => {
+  const src = readFileSync("src/components/Button.tsx", "utf-8");
+  expect(src).toContain("label");
+  expect(src).toContain("onClick");
+  expect(src).toContain("button");
+});
+```
+
+如果插件会触发特定工具，也可以检查 `__fasteval__/results.json`：
+
+```ts
+import { test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+test("plugin tool was used", () => {
+  const result = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8"));
+  expect(result.o11y.totalToolCalls).toBeGreaterThan(0);
+});
+```
+
+## 运行
+
+```bash
+npx fasteval --agent claude-code --sandbox docker fixtures/plugin/create-button
+npx fasteval --agent codex --sandbox docker fixtures/plugin/create-button
+```
+
+位置参数 `fixtures/plugin/create-button` 是 eval ID 前缀，不是 agent 名。agent 用 `--agent` 选择。
+
+## 比较插件效果
+
+把“开启插件”和“不开启插件”做成两个 agent 或两个 experiment cell：
+
+```bash
+npx fasteval exp plugin-regression fixtures/plugin/create-button
+```
+
+重点看：
+
+- `pass@N` 是否提升。
+- 平均耗时和 token 是否可接受。
+- 失败 transcript 中 agent 是否真的使用了插件。
+- diff 是否只改了任务相关文件。
+
+## Copy to your agent
+
+```text
+READ docs-site/zh/guides/claude-code-codex-plugin.mdx and install fasteval for this repo.
+Create the first fixture from one real plugin workflow, then run it with both claude-code and codex.
+```
+
+## 下一步
+
+- [Fixtures](/zh/guides/fixtures) — fixture 目录和 `EVAL.ts` 的完整写法。
+- [Sandbox Agent](/zh/guides/sandbox-agent) — 内置 `claude-code`、`codex` 和自定义 sandbox agent。
+- [查看结果](/zh/guides/viewing-results) — 看 transcript、diff 和 event stream。
