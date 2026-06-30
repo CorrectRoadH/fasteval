@@ -8,6 +8,8 @@ import { t } from "../i18n/index.ts";
 export interface EvalScore {
   score: number;
   detail?: string;
+  /** 这条分数是看着什么材料算出来的(judge 收到的输入);供 view 展开排查「为什么是这个分」。 */
+  evidence?: string;
 }
 
 /** 一条尚未评估的断言。evaluate 在 finalize 时拿到完整运行结果再算分 [0,1]。 */
@@ -80,6 +82,7 @@ export class AssertionCollector {
     for (const spec of this.specs) {
       let score = 0;
       let detail = spec.detail;
+      let evidence: string | undefined;
       try {
         const raw = await spec.evaluate(ctx);
         if (typeof raw === "number") {
@@ -87,6 +90,7 @@ export class AssertionCollector {
         } else {
           score = raw.score;
           if (raw.detail) detail = detail ? `${detail}; ${raw.detail}` : raw.detail;
+          evidence = raw.evidence;
         }
       } catch (e) {
         score = 0;
@@ -101,6 +105,7 @@ export class AssertionCollector {
         score,
         passed: computePassed(spec.severity, spec.threshold, score),
         detail,
+        evidence,
         group: spec.group,
         loc: spec.loc,
       });

@@ -31,6 +31,7 @@ interface LeaderboardRow {
   agent: string;
   model?: string;
   runs: number;
+  evals: number;
   passed: number;
   failed: number;
   errored: number;
@@ -269,6 +270,8 @@ function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
     const first = results[0]!;
     const experimentId = first.experimentId;
     const cost = sumMaybe(results.map((r) => r.estimatedCostUSD));
+    // 一行 = 一个实验,results 内按 eval id 折叠计票(passed/failed/通过率都是 eval 级)。
+    const stats = evalLevelStats(results, (r) => r.id);
     return {
       key,
       experimentId,
@@ -278,12 +281,13 @@ function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
       agent: first.agent,
       model: first.model,
       lastRunAt: lastRunAt.get(key),
-      runs: results.length,
-      passed: results.filter((r) => resultOutcome(r) === "passed").length,
-      failed: results.filter((r) => resultOutcome(r) === "failed").length,
-      errored: results.filter((r) => resultOutcome(r) === "errored").length,
-      skipped: results.filter((r) => resultOutcome(r) === "skipped").length,
-      passRate: results.length ? results.filter((r) => resultOutcome(r) === "passed").length / results.length : 0,
+      runs: results.length, // 总 attempt 数(详情里作次要信息)
+      evals: stats.evals, // 去重后的 eval 数(成功率分母的口径)
+      passed: stats.passed,
+      failed: stats.failed,
+      errored: stats.errored,
+      skipped: stats.skipped,
+      passRate: stats.passRate,
       avgDurationMs: avg(results.map((r) => r.durationMs)),
       usage: sumUsage(results.map((r) => r.usage)),
       estimatedCostUSD: cost,
@@ -298,12 +302,42 @@ function resultOutcome(result: EvalResult): EvalResult["outcome"] {
   return result.outcome ?? (result.error !== undefined ? "errored" : result.verdict);
 }
 
+/**
+ * 把同一个 eval 的多轮 attempt 折叠成单一判决:任一轮通过 → 该 eval 通过(对齐 earlyExit
+ * 「先过一次即停」语义),否则按 failed > errored > skipped 取最严重的一个。
+ */
+function foldEvalOutcome(results: EvalResult[]): EvalResult["outcome"] {
+  const outcomes = results.map(resultOutcome);
+  if (outcomes.some((o) => o === "passed")) return "passed";
+  if (outcomes.some((o) => o === "failed")) return "failed";
+  if (outcomes.some((o) => o === "errored")) return "errored";
+  return "skipped";
+}
+
+/**
+ * 通过率与 passed/failed 一律按 eval 计票,不按 attempt:每个 eval 不管跑几轮都只占一票,先把它
+ * 的多轮折叠成单一判决再计数。否则 runs>1 时同一 eval 的 N 次 attempt 各算一票 —— 尤其 earlyExit
+ * 开时通过的 eval 只留 1 次、失败的 eval 跑满 N 次,失败 eval 被重复计入分母,把通过率拉低
+ * (见 docs/runner.md、docs/scoring.md)。keyOf 决定「一个 eval」的粒度:单实验按 eval id,
+ * 跨实验组按 experimentId|eval id。
+ */
+function evalLevelStats(results: EvalResult[], keyOf: (r: EvalResult) => string) {
+  const byEval = new Map<string, EvalResult[]>();
+  for (const r of results) byEval.set(keyOf(r), [...(byEval.get(keyOf(r)) ?? []), r]);
+  const counts = { passed: 0, failed: 0, errored: 0, skipped: 0 };
+  for (const group of byEval.values()) counts[foldEvalOutcome(group)] += 1;
+  const ran = counts.passed + counts.failed + counts.errored; // skipped 不进分母
+  return { evals: byEval.size, ...counts, passRate: ran ? counts.passed / ran : 0 };
+}
+
 function summarizeAll(loaded: LoadedSummary[]) {
   const results = loaded.flatMap((s) => s.summary.results);
-  const passed = results.filter((r) => resultOutcome(r) === "passed").length;
+  // 顶部总览同样按 eval 计票:每个(实验, eval)只算一份,跨实验/跨 run 不被 runs 灌票。
+  const groupKey = (r: EvalResult) => (r.experimentId ? `exp|||${r.experimentId}` : `legacy|||${r.agent}|||${r.model ?? ""}`);
+  const stats = evalLevelStats(results, (r) => `${groupKey(r)}|||${r.id}`);
   return {
-    results: results.length,
-    passRate: results.length ? passed / results.length : 0,
+    results: stats.evals,
+    passRate: stats.passRate,
     durationMs: loaded.reduce((sum, s) => sum + (s.summary.durationMs ?? 0), 0),
     cost: sumMaybe(loaded.map((s) => s.summary.estimatedCostUSD)),
   };

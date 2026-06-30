@@ -57,9 +57,8 @@ docker compose up -d
 
 ```sh
 pnpm exec fasteval list           # 列出 2 个 eval
-pnpm exec fasteval                # 全跑
-pnpm exec fasteval weather-tool   # 只跑某个
-pnpm exec fasteval exp compare-models  # 跨模型对比(需 OPENAI_API_KEY)
+pnpm exec fasteval exp compare-models  # 跑 compare-models 实验组
+pnpm exec fasteval exp compare-models weather-tool  # 在实验组里只跑某个 eval
 ```
 
 `baseUrl` 写在 `fasteval.config.ts` 里（默认 `http://127.0.0.1:5188`），adapter 不读 env。换个被测实例只改 config / experiment 里那一行。

@@ -68,7 +68,9 @@ async function callJudge(
     choices?: { message?: { content?: string } }[];
   };
   const content = data.choices?.[0]?.message?.content ?? "";
-  return parseJudgeReply(content);
+  // evidence = 实际发给裁判的用户内容(材料 + 问题/标准)。view 展开就能看到「裁判到底读了什么」,
+  // 一眼分辨 0 分是回答真不行,还是喂错了材料(例如对话 eval 误喂 diff)。
+  return { ...parseJudgeReply(content), evidence: user };
 }
 
 /**
@@ -225,7 +227,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
           ...autoevalsBase,
           ...(opts?.model ? { model: opts.model } : {}),
         });
-        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined };
+        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined, evidence: output };
       },
     });
 
@@ -242,7 +244,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
           ...autoevalsBase,
           ...(opts?.model ? { model: opts.model } : {}),
         });
-        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined };
+        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined, evidence: output };
       },
     });
 
@@ -259,7 +261,7 @@ export function buildJudge(deps: JudgeDeps): JudgeNamespace {
           ...autoevalsBase,
           ...(opts?.model ? { model: opts.model } : {}),
         });
-        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined };
+        return { score: clamp01(result.score ?? 0), detail: (result as { rationale?: string }).rationale || undefined, evidence: output };
       },
     });
 

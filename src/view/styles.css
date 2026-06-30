@@ -1,3 +1,22 @@
+@import "tailwindcss";
+
+/* 把现有设计令牌暴露给 Tailwind:既保留 var(--panel) 给旧 CSS 用,又生成 bg-panel / text-muted /
+   border-line 等 utility,新组件(shadcn)直接用 token 配色,深浅色仍由 light-dark() 驱动。 */
+@theme {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-soft: var(--soft);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --color-warn: var(--warn);
+  --color-focus: var(--focus);
+}
+
 :root {
   color-scheme: light dark;
   --bg: light-dark(#fafafa, #050505);
@@ -54,25 +73,7 @@ a { color: inherit; }
   transform: rotate(45deg);
   display: inline-block;
 }
-.nav {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-  color: var(--muted);
-  font-size: 14px;
-}
-.nav-tab {
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  font-size: 14px;
-  color: var(--muted);
-  font-family: inherit;
-  font-weight: 400;
-}
-.nav-tab:hover { color: var(--text); }
-.nav-tab.is-active { color: var(--text); font-weight: 560; }
+/* 顶部导航 .nav / .nav-tab → components/ui/tabs.tsx(Radix Tabs + Tailwind utilities)。 */
 .lang-switch {
   display: inline-flex;
   align-items: center;
@@ -542,94 +543,24 @@ tbody tr:last-child td { border-bottom: 0; }
 .eval-item-clickable:hover {
   background: color-mix(in oklch, var(--panel-2), var(--panel) 30%);
 }
-/* Modal */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  background: color-mix(in oklch, black, transparent 52%);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.modal-panel {
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  width: min(960px, 100%);
-  max-height: min(86vh, 820px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 20px 60px color-mix(in oklch, black, transparent 42%);
-}
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 13px 18px 11px;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-  gap: 12px;
-  min-width: 0;
-}
-.modal-title-block {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.modal-title {
-  font-size: 14px;
-  font-weight: 640;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.modal-desc {
-  font-size: 12px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.modal-close {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
+/* eval 折叠行:Run 列的 通过/总 轮次比 */
+.run-ratio { color: var(--soft); }
+/* 展开后的各轮 attempt:左侧加描边 + 轻微缩进,标识它们从属于上面的 eval 行 */
+.eval-attempts {
   display: grid;
-  place-items: center;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 14px;
-  font-family: inherit;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  margin-left: 8px;
+  border-left: 2px solid color-mix(in oklch, var(--accent, var(--line)), transparent 55%);
+  background: color-mix(in oklch, var(--panel-2), transparent 55%);
 }
-.modal-close:hover {
-  background: var(--panel-2);
-  border-color: var(--line);
-  color: var(--text);
+.eval-attempts .eval-item {
+  padding-left: 12px;
 }
-.modal-body {
-  overflow-y: auto;
-  padding: 14px 18px 18px;
-  flex: 1;
-}
-.modal-body .attempt-body {
-  padding: 0;
+.eval-attempts .eval-item:last-child {
   border-bottom: none;
 }
-.attempt-body {
-  padding: 4px 0 0;
-  border-bottom: 1px solid color-mix(in oklch, var(--line), transparent 35%);
-}
-.attempt-body > .trace-details:last-child { border-bottom: none; padding-bottom: 6px; }
+/* Modal */
+/* modal chrome(backdrop / panel / header / title / close / body / outcome chip)→
+   迁到 components/ui/dialog.tsx + components/ui/badge.tsx + AttemptModal 的 Tailwind utilities。 */
 
 /* No-source modal body: same visual language as the code view (checks + transcript). */
 .nosource { display: flex; flex-direction: column; gap: 14px; }
@@ -914,7 +845,6 @@ a.brand:hover { opacity: 0.75; }
 .traces-dur { color: var(--soft); }
 @media (max-width: 760px) {
   .topbar { padding: 0 20px; }
-  .nav { display: none; }
   .lang-switch button { min-width: 40px; }
   main { width: min(100vw - 28px, 1120px); padding-top: 42px; }
   .hero { text-align: left; margin-left: 0; }
@@ -932,21 +862,7 @@ a.brand:hover { opacity: 0.75; }
   .eval-item { grid-template-columns: 72px minmax(180px, 1fr) minmax(220px, 1fr) 76px 78px 72px 50px; }
 }
 
-/* ───────────────────────── Modal: outcome chip + error + code view ───────────────────────── */
-.modal-outcome {
-  display: inline-block;
-  width: fit-content;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 1px 7px;
-  border-radius: 5px;
-  border: 1px solid currentColor;
-  background: color-mix(in oklch, currentColor, transparent 90%);
-  margin-bottom: 3px;
-}
-
+/* ───────────────────────── Modal: error + code view (outcome chip → components/ui/badge.tsx) ───────────────────────── */
 .modal-error {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
@@ -1101,6 +1017,32 @@ a.brand:hover { opacity: 0.75; }
 .assert-sev { font-size: 10px; color: var(--soft); text-transform: uppercase; letter-spacing: 0.04em; }
 .assert-score { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .assert-reason { grid-column: 1 / -1; color: var(--muted); white-space: pre-wrap; font-size: 12px; }
+
+/* 可观测性:裁判看到的材料(默认折叠,展开排查「为什么是这个分」)。 */
+.assert-evidence { grid-column: 1 / -1; margin-top: 2px; }
+.assert-evidence > summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 11px;
+  color: var(--soft);
+  letter-spacing: 0.02em;
+}
+.assert-evidence > summary:hover { color: var(--text); }
+.assert-evidence-pre {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in oklch, var(--panel), var(--line) 24%);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  max-height: 260px;
+  overflow-y: auto;
+}
 
 .code-orphans { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .code-orphans-head { font-size: 11px; color: var(--muted); margin-bottom: 8px; }

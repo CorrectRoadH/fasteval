@@ -86,7 +86,7 @@ export default defineEval({
 ```
 
 ```sh
-npx fasteval button --agent codex --sandbox docker
+npx fasteval exp codex-docker button
 npx fasteval view
 ```
 

@@ -32,6 +32,7 @@ export interface ViewRow {
   agent: string;
   model?: string;
   runs: number;
+  evals: number;
   passed: number;
   failed: number;
   errored: number;

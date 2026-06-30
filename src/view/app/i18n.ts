@@ -35,6 +35,9 @@ export type MessageKey =
   | "detail.evalResult"
   | "detail.evalResults"
   | "detail.attempts"
+  | "detail.evals"
+  | "detail.runs"
+  | "detail.runsUnit"
   | "detail.passed"
   | "detail.failed"
   | "detail.errored"
@@ -91,6 +94,7 @@ export type MessageKey =
   | "assert.pass"
   | "assert.fail"
   | "assert.soft"
+  | "assert.evidence"
   | "outcome.passed"
   | "outcome.failed"
   | "outcome.errored"
@@ -131,16 +135,19 @@ const dictionaries: Record<Locale, Dictionary> = {
     "table.evalId": "Eval ID",
     "table.outcome": "Outcome",
     "table.ranAt": "Ran At",
-    "detail.evalResult": "eval result",
-    "detail.evalResults": "eval results",
+    "detail.evalResult": "eval",
+    "detail.evalResults": "evals",
     "detail.attempts": "Attempts",
+    "detail.evals": "Evals",
+    "detail.runs": "Runs",
+    "detail.runsUnit": "runs",
     "detail.passed": "Passed",
     "detail.failed": "Failed",
     "detail.errored": "Errored",
     "detail.totalTime": "Total Time",
     "detail.totalCost": "Total Cost",
     "detail.ran": "Ran",
-    "detail.evaluationAttempts": "Evaluation Attempts",
+    "detail.evaluationAttempts": "Evals",
     "detail.status": "Status",
     "detail.eval": "Eval",
     "detail.reason": "Reason",
@@ -190,6 +197,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "assert.pass": "pass",
     "assert.fail": "fail",
     "assert.soft": "soft",
+    "assert.evidence": "What the judge saw",
     "outcome.passed": "passed",
     "outcome.failed": "failed",
     "outcome.errored": "errors",
@@ -227,16 +235,19 @@ const dictionaries: Record<Locale, Dictionary> = {
     "table.evalId": "Eval ID",
     "table.outcome": "状态",
     "table.ranAt": "运行时间",
-    "detail.evalResult": "条 eval 结果",
-    "detail.evalResults": "条 eval 结果",
+    "detail.evalResult": "个 eval",
+    "detail.evalResults": "个 eval",
     "detail.attempts": "尝试",
+    "detail.evals": "Eval 数",
+    "detail.runs": "总轮次",
+    "detail.runsUnit": "轮",
     "detail.passed": "通过",
     "detail.failed": "失败",
     "detail.errored": "错误",
     "detail.totalTime": "总耗时",
     "detail.totalCost": "总成本",
     "detail.ran": "运行",
-    "detail.evaluationAttempts": "Eval 尝试",
+    "detail.evaluationAttempts": "各 Eval",
     "detail.status": "状态",
     "detail.eval": "Eval",
     "detail.reason": "原因",
@@ -286,6 +297,7 @@ const dictionaries: Record<Locale, Dictionary> = {
     "assert.pass": "通过",
     "assert.fail": "失败",
     "assert.soft": "soft",
+    "assert.evidence": "裁判看到的材料",
     "outcome.passed": "通过",
     "outcome.failed": "失败",
     "outcome.errored": "错误",

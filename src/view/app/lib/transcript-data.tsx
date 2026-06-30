@@ -1,0 +1,121 @@
+import type { ReactNode } from "react";
+import type { Assertion, Indexed, IndexedTurns, SourceTurn, TranscriptEvent, ViewJson } from "../types.ts";
+import type { ToolBlockCall } from "../shared.ts";
+import { isObjectRecord } from "./guards.ts";
+import { prettyJson } from "./format.ts";
+
+// ───────────────────────── 源码对齐的代码视图(github-diff 式)─────────────────────────
+// 拿 sources.json(eval 源码)+ events.json(带 loc 的 send),把每条 send / 断言的运行结果
+// 叠回真实源码行:send 行折叠→展开看回复;断言行绿(过)/红(不过),judge 行带分数,展开看 CoT。
+
+export function locKey(file: string, line: number): string {
+  return `${file}:${line}`;
+}
+
+/** events → 按 send 的 loc 聚成「轮」:每轮含 sent 文本 + 后续 thinking/assistant/tool 回复。 */
+export function indexTurns(events: TranscriptEvent[]): IndexedTurns {
+  const byKey = new Map<string, SourceTurn>();
+  const noloc: SourceTurn[] = [];
+  let cur: SourceTurn | null = null;
+  for (const ev of events || []) {
+    if (ev.type === "message" && ev.role === "user") {
+      cur = { loc: ev.loc, sent: ev.text || "", replies: [] };
+      if (ev.loc) byKey.set(locKey(ev.loc.file, ev.loc.line), cur);
+      else noloc.push(cur);
+    } else if (!cur) {
+      continue;
+    } else if (ev.type === "message" && ev.role === "assistant") {
+      cur.replies.push({ kind: "text", text: ev.text || "" });
+    } else if (ev.type === "thinking") {
+      cur.replies.push({ kind: "thinking", text: ev.text || "" });
+    } else if (ev.type === "action.called") {
+      cur.replies.push({ kind: "tool", ev });
+    } else if (ev.type === "action.result") {
+      const tool = [...cur.replies].reverse().find(
+        (r): r is Extract<SourceTurn["replies"][number], { kind: "tool" }> => r.kind === "tool" && r.ev.callId === ev.callId,
+      );
+      if (tool) tool.result = ev;
+    } else if (ev.type === "error") {
+      cur.replies.push({ kind: "error", text: ev.message || "error" });
+    }
+  }
+  return { byKey, noloc };
+}
+
+/** assertions → 按 loc 聚到行。有 loc 的进 byKey,没 loc 的进 noloc(底部兜底列)。 */
+export function indexAsserts(assertions: Assertion[]): Indexed<Assertion> {
+  const byKey = new Map<string, Assertion[]>();
+  const noloc: Assertion[] = [];
+  for (const a of assertions || []) {
+    if (a.loc) {
+      const k = locKey(a.loc.file, a.loc.line);
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k)?.push(a);
+    } else {
+      noloc.push(a);
+    }
+  }
+  return { byKey, noloc };
+}
+
+export const TS_HL_RE =
+  /(\/\/[^\n]*)|(\/\*[^]*?\*\/)|(`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b(import|from|export|default|const|let|var|async|await|function|return|if|else|for|of|in|new|class|extends|typeof|void|true|false|null|undefined)\b|\b(\d[\d_.]*)\b|([A-Za-z_$][\w$]*)(?=\s*\()/g;
+
+/** 轻量 TS 着色(逐行,零依赖):注释 / 字符串 / 关键字 / 数字 / 函数名。 */
+export function highlightTs(line: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  let last = 0;
+  let i = 0;
+  let m: RegExpExecArray | null;
+  TS_HL_RE.lastIndex = 0;
+  while ((m = TS_HL_RE.exec(line))) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    const cls = m[1] || m[2] ? "tok-comment" : m[3] ? "tok-str" : m[4] ? "tok-kw" : m[5] ? "tok-num" : m[6] ? "tok-fn" : null;
+    out.push(cls ? <span key={i++} className={cls}>{m[0]}</span> : m[0]);
+    last = m.index + m[0].length;
+    if (m[0].length === 0) TS_HL_RE.lastIndex++;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out;
+}
+
+export const TOOL_VERB: Record<string, string> = {
+  file_read: "Read",
+  file_write: "Write",
+  file_edit: "Edit",
+  shell: "Bash",
+  web_fetch: "Fetch",
+  web_search: "Search",
+  glob: "Glob",
+  grep: "Grep",
+  list_dir: "List",
+  agent_task: "Task",
+};
+
+export function toolPrimaryArg(call: ToolBlockCall): string {
+  const input = call.input;
+  if (typeof input === "string") return input;
+  if (!isObjectRecord(input)) return "";
+  if (call.tool === "shell") {
+    const command = input.command ?? input.cmd;
+    if (typeof command === "string") return command;
+    if (Array.isArray(command)) return command.filter((x: ViewJson) => typeof x === "string").join(" ");
+  }
+  for (const key of ["path", "file", "file_path", "filename", "pattern", "query", "url", "uri", "prompt", "description", "command", "remoteUrl"]) {
+    const value = input[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return "";
+}
+
+export function resultBody(output: ViewJson | undefined): string {
+  if (output == null) return "";
+  if (typeof output === "string") return output;
+  if (isObjectRecord(output)) {
+    for (const key of ["output", "stdout", "content", "text", "result", "body"]) {
+      const value = output[key];
+      if (typeof value === "string") return value;
+    }
+  }
+  return prettyJson(output);
+}

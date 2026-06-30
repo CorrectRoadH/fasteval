@@ -731,6 +731,7 @@ async function runAttemptBody(
 
     return {
       id: evalDef.id,
+      description: evalDef.description,
       experimentId: run.experimentId,
       experiment: experimentRunInfo(run),
       agent: run.agent.name,

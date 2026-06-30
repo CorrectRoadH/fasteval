@@ -500,6 +500,8 @@ export interface AssertionResult {
   score: number;
   passed: boolean;
   detail?: string;
+  /** 这条分数是看着什么材料算出来的(judge 收到的输入)。view 展开排查「为什么是这个分」,默认不展示。 */
+  evidence?: string;
   /** 所属分组(t.group 标题)。纯报告用,不影响 passed/score。 */
   group?: string;
   /** 断言在 eval 源码里的调用点(栈回溯抠出);view 把判决叠回这一行。 */

@@ -2,7 +2,8 @@ import { defineEval } from "fasteval";
 
 // 用 t.sendFile 把本地真实图片(fixtures/sample.png,蓝底中间一个白方块)发给助手:
 // fasteval 读文件 → base64 → 经 adapter 交给 app → mock 返回固定描述。
-// 助手应描述出图片内容(主色调蓝、有个白方块)。judge 为 soft,mock judge 给 0.85 → 通过。
+// 助手应描述出图片内容(主色调蓝、有个白方块)。judge.agent 评的是**助手回复**(不再误喂 diff),
+// mock judge 给 0.85 ≥ .atLeast(0.7) → 通过(绿行);展开断言可见「裁判看到的材料」就是这条回复。
 export default defineEval({
   description: "AI 助手:理解图片内容",
 

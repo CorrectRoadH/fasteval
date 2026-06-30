@@ -1,0 +1,83 @@
+import { useMemo, useState } from "react";
+import type { RowRun, T } from "../shared.ts";
+import type { ViewResult, ViewRow } from "../types.ts";
+import { outcomeClass, outcomeLabel, outcomeOf } from "../lib/outcome.ts";
+import { formatCost, formatDateTime, formatDuration, formatTokens, totalTokens } from "../lib/format.ts";
+
+export function RunsView({ rows, t }: { rows: ViewRow[]; t: T }) {
+  const [query, setQuery] = useState("");
+  const allRuns = useMemo(
+    () => rows.flatMap((row: ViewRow) => (row.results ?? []).map((r: ViewResult): RowRun => ({ ...r, rowLabel: row.label, rowAgent: row.agent, rowModel: row.model }))),
+    [rows],
+  );
+  const filtered = allRuns.filter((r: RowRun) => {
+    const q = query.trim().toLowerCase();
+    return !q || `${r.id} ${r.rowLabel} ${r.rowAgent} ${r.rowModel || ""}`.toLowerCase().includes(q);
+  });
+  return (
+    <section id="tab-runs">
+      <div className="section-head">
+        <h2>{t("section.individualRuns")}</h2>
+        <div className="controls">
+          <input
+            className="search"
+            type="search"
+            placeholder={t("search.runs")}
+            autoComplete="off"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      </div>
+      {!allRuns.length ? (
+        <div className="empty">{t("empty.individualRuns")}</div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("table.evalId")}</th>
+                <th>{t("table.experiment")}</th>
+                <th>{t("table.outcome")}</th>
+                <th>{t("table.agent")}</th>
+                <th>{t("table.model")}</th>
+                <th>{t("metric.duration")}</th>
+                <th>{t("table.tokens")}</th>
+                <th>{t("table.estCost")}</th>
+                <th>{t("table.ranAt")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length ? (
+                filtered.map((r: RowRun) => {
+                  const outcome = outcomeOf(r);
+                  return (
+                    <tr key={`${r.id}-${r.rowLabel}-${r.attempt}`}>
+                      <td>
+                        <span className="name">{r.id}</span>
+                      </td>
+                      <td>{r.rowLabel}</td>
+                      <td className={outcomeClass(outcome)}>{outcomeLabel(outcome, t)}</td>
+                      <td>{r.rowAgent}</td>
+                      <td>{r.rowModel || t("config.default")}</td>
+                      <td className="num">{formatDuration(r.durationMs)}</td>
+                      <td className="num">{formatTokens(totalTokens(r.usage))}</td>
+                      <td className="num">{formatCost(r.estimatedCostUSD)}</td>
+                      <td className="num">{r.startedAt ? formatDateTime(r.startedAt) : "-"}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={9} style={{ textAlign: "center", color: "var(--muted)" }}>
+                    {t("empty.runsFilter")}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
