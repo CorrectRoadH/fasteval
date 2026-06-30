@@ -1,0 +1,182 @@
+---
+title: "Viewing fasteval results and debugging agent behavior"
+sidebarTitle: "Viewing Results"
+description: "fasteval stores structured artifacts in .fasteval/ after every run. Use npx fasteval view to explore transcripts, diffs, event streams, and pass rates."
+---
+
+After every run, fasteval writes a complete set of structured artifacts to `.fasteval/<timestamp>/`. The console gives you instant feedback while the run is in progress, and the local result viewer lets you drill into exactly what the agent did — which tools it called, what files it changed, what the LLM said turn by turn — when you need to debug a failure or understand why an eval's score dropped.
+
+## Console output
+
+The console streams results in real time as each eval completes. A typical run looks like this:
+
+```
+Discovered 3 evals
+
+  ✓ classify (12ms)
+  ✓ weather/brooklyn (456ms)
+  ✗ fixtures/button (38s)
+    - gate: EVAL.ts › Button accepts label / onClick [FAILED]
+      Expected src to contain "onClick"
+
+Results:  2 passed, 1 failed, 0 scored, 0 skipped
+```
+
+Each line tells you the eval ID, its verdict, and wall-clock duration. Failed evals show the specific assertion that didn't pass, including the assertion type (`gate` or `soft`) and the failure message.
+
+For experiment runs, the summary shows pass rates per `(agent, model, eval)` cell:
+
+```
+fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.44
+fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.39
+```
+
+## The `.fasteval/<timestamp>/` directory
+
+Every run produces a timestamped output directory containing:
+
+```
+.fasteval/
+└─ 2025-01-15T14-23-00/
+   ├─ summary.json           # top-level run summary
+   ├─ weather/
+   │  └─ brooklyn/
+   │     ├─ result.json      # per-eval verdict and assertions
+   │     ├─ events.jsonl     # raw StreamEvent[] stream
+   │     ├─ transcript.jsonl # agent conversation transcript
+   │     └─ diff.json        # generated file diff (sandbox evals)
+   └─ fixtures/
+      └─ button/
+         ├─ result.json
+         ├─ events.jsonl
+         ├─ transcript.jsonl
+         ├─ diff.json
+         └─ test-output.txt  # EVAL.ts Vitest output
+```
+
+## The `fasteval view` command
+
+```bash
+npx fasteval view
+```
+
+This opens the local result viewer, pointed at the most recent run in `.fasteval/`. The viewer lets you browse evals, inspect transcripts, read diffs, explore the event stream, and navigate the assertion results — all without leaving your machine. No data is uploaded anywhere.
+
+<Tip>
+  Run `npx fasteval view` immediately after a failed run to open the results for the exact run that just finished.
+</Tip>
+
+## Artifacts explained
+
+### `summary.json`
+
+The top-level summary captures aggregate statistics for the entire run:
+
+```json
+{
+  "runId": "2025-01-15T14-23-00",
+  "passed": 2,
+  "failed": 1,
+  "scored": 0,
+  "skipped": 0,
+  "errored": 0,
+  "durationMs": 38912,
+  "usage": {
+    "inputTokens": 14200,
+    "outputTokens": 3100
+  },
+  "estimatedCostUSD": 0.89
+}
+```
+
+For experiment runs, `summary.json` also contains the per-cell pass rate table.
+
+### Event stream (`events.jsonl`)
+
+Each line in `events.jsonl` is a `StreamEvent` — the normalized, agent-agnostic event representation that fasteval uses as the source of truth for all assertions:
+
+```ts
+type StreamEvent =
+  | { type: "message"; role: "assistant" | "user"; text: string }
+  | { type: "action.called"; callId: string; name: string; input: JsonValue }
+  | { type: "action.result"; callId: string; output?: JsonValue; status: "completed" | "failed" | "rejected" }
+  | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
+  | { type: "subagent.completed"; callId: string; output?: JsonValue; status: "completed" | "failed" }
+  | { type: "input.requested"; request: InputRequest }
+  | { type: "thinking"; text: string }
+  | { type: "error"; message: string };
+```
+
+The event stream is what `t.calledTool()`, `t.event()`, `t.noFailedActions()`, and all other scope assertions query. Reading it directly lets you understand exactly what sequence of actions the agent took.
+
+### Transcript (`transcript.jsonl`)
+
+For sandbox evals (coding agents), the transcript is the raw JSONL log produced by the agent CLI, captured before it is parsed into the standard event stream. This is the most detailed view of what the agent did — every tool invocation, every file read, every shell command, every model response.
+
+### Generated file diff (`diff.json`)
+
+For sandbox evals, `diff.json` captures the git diff between the workspace's initial state and the state after the agent finished. It includes the list of changed, added, and deleted files along with their content. This is what `t.fileChanged()`, `t.diff.get()`, and `t.notInDiff()` assertions query.
+
+### Test output (`test-output.txt`)
+
+For sandbox evals that include an `EVAL.ts`, `test-output.txt` contains the full Vitest output from running the validation tests inside the sandbox. This shows exactly which test cases passed and failed, with the same detail you'd see running Vitest locally.
+
+## Verdict meanings
+
+<Tabs>
+  <Tab title="passed">
+    All gate assertions passed and all soft assertions met their thresholds. The agent completed the task correctly and within quality targets.
+  </Tab>
+  <Tab title="failed">
+    A gate assertion failed, the eval timed out, or an unhandled error occurred. This is a hard failure — the agent did not complete the task correctly.
+  </Tab>
+  <Tab title="scored">
+    All gate assertions passed, but at least one soft assertion (typically an LLM-as-judge score) fell below its threshold. The agent completed the task but with a quality regression. Without `--strict` this does not fail the build.
+  </Tab>
+  <Tab title="skipped">
+    `t.skip(reason)` was called inside the eval's `test` function — for example, because a required precondition wasn't met.
+  </Tab>
+</Tabs>
+
+## Reading pass rates for experiments
+
+When you run an experiment with `runs > 1`, the result viewer shows pass@k rates for each `(agent, model, eval)` cell:
+
+```
+fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.44
+fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.39
+```
+
+`pass@5 = 4/5` means 4 of the 5 attempts for that cell produced a `passed` verdict. The mean time, token usage, and cost are averages across those 5 attempts. Use these numbers to compare agent reliability and cost efficiency side by side.
+
+## Using artifacts for debugging
+
+### Reading the transcript to understand agent behavior
+
+When an eval fails unexpectedly, the transcript is usually the best place to start. Open `transcript.jsonl` in the viewer or read it directly to see the full turn-by-turn conversation, the exact inputs to every tool call, and the outputs returned. This tells you whether the agent understood the task, attempted the right approach, or got stuck in a loop.
+
+### Checking the diff for unexpected changes
+
+For sandbox (coding agent) evals, `diff.json` shows every file the agent touched. If an eval fails a `t.fileChanged("src/Button.tsx")` assertion, the diff tells you whether the agent wrote to a different path, skipped writing entirely, or created the file but under the wrong name. If a `t.notInDiff(/sk-[A-Za-z0-9]/)` assertion fires, the diff shows you exactly which file contains the leaked secret.
+
+### Checking the event stream for tool usage issues
+
+If a `t.calledTool()` assertion fails, read `events.jsonl` to see what tools the agent actually called. You'll see every `action.called` and `action.result` event in order, with the exact inputs and outputs. This makes it easy to spot cases where an agent called the right tool with the wrong arguments, or called a different tool than expected.
+
+### Using `__fasteval__/results.json` in EVAL.ts
+
+For sandbox evals, fasteval injects an observability summary into the sandbox at `__fasteval__/results.json` before running `EVAL.ts`. Your test code can read it to make assertions about agent behavior rather than just file outcomes:
+
+```ts
+// evals/fixtures/button/EVAL.ts
+import { test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+test("did not run destructive commands", () => {
+  const o11y = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8")).o11y;
+  const commands = o11y.shellCommands.map((c: { command: string }) => c.command);
+  expect(commands).not.toContain("rm -rf");
+});
+```
+
+This lets you combine file-level correctness checks with behavioral assertions — both gated on the same Vitest run, with the full output captured in `test-output.txt`.

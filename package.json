@@ -37,7 +37,10 @@
     "typecheck": "tsc --noEmit",
     "fasteval": "node bin/fasteval.js",
     "site:dev": "vite site --host 127.0.0.1 --port 5174",
-    "site:build": "vite build site"
+    "site:build": "vite build site",
+    "docs:dev": "cd docs-site && npx --yes mint@latest dev",
+    "docs:validate": "cd docs-site && npx --yes mint@latest validate",
+    "docs:links": "cd docs-site && npx --yes mint@latest broken-links --check-anchors --check-redirects"
   },
   "dependencies": {
     "dockerode": "^4.0.2",

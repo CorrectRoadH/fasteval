@@ -215,6 +215,7 @@ async function main(): Promise<void> {
   }
 
   const agentRuns: AgentRun[] = [];
+  let expMaxConcurrency: number | undefined;
 
   if (command === "exp") {
     const experiments = await discoverExperiments(cwd);
@@ -245,6 +246,8 @@ async function main(): Promise<void> {
         });
       }
     }
+    const vals = selected.map((e) => e.maxConcurrency).filter((v): v is number => v !== undefined);
+    if (vals.length > 0) expMaxConcurrency = Math.min(...vals);
   } else {
     // 给了 pattern 却匹配不到任何 eval:别静默跑 0 个。多半是把实验组/实验名当成了 eval
     // (例:`fasteval dev` 实为 run 命令 + pattern "dev")—— 明确报错并指路 `exp`。
@@ -312,7 +315,7 @@ async function main(): Promise<void> {
     evals,
     agentRuns,
     reporters,
-    maxConcurrency: flags.maxConcurrency ?? config.maxConcurrency ?? 4,
+    maxConcurrency: flags.maxConcurrency ?? expMaxConcurrency ?? config.maxConcurrency ?? 4,
     sandboxConcurrency: flags.sandboxConcurrency ?? config.sandboxConcurrency,
     signal: ctrl.signal,
   });

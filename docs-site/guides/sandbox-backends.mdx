@@ -1,0 +1,201 @@
+---
+title: "Sandbox backends: Docker, Vercel, and third-party"
+sidebarTitle: "Sandbox Backends"
+description: "fasteval runs coding agents in Docker or Vercel sandboxes. Learn how to select a backend, configure root access, and improve performance with warm pools."
+---
+
+A sandbox backend is the infrastructure that creates and manages the isolated environment where a coding agent runs. fasteval wraps every backend behind a single `Sandbox` interface, so your adapter code works identically regardless of whether the environment is a local Docker container, a Vercel micro-VM, or a third-party cloud service. You choose a backend at the CLI or in config; the adapter never needs to know which one is active.
+
+## The `Sandbox` interface
+
+Every backend implements the same interface. These are the only operations an adapter ever calls:
+
+```ts
+interface Sandbox {
+  runCommand(cmd: string, args?: string[], opts?: {
+    env?: Record<string, string>;
+    cwd?: string;
+    root?: boolean;  // run as root (default: false → non-root)
+  }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+
+  runShell(script: string, opts?): Promise<CommandResult>;  // run a full shell script
+
+  readFile(path: string): Promise<string>;
+  writeFiles(files: Record<string, string>): Promise<void>;
+  uploadFiles(files: SandboxFile[]): Promise<void>;         // batch upload, supports binary
+
+  getWorkingDirectory(): string;
+  setWorkingDirectory(path: string): void;
+
+  stop(): Promise<void>;
+}
+```
+
+---
+
+## Root vs non-root: why non-root is the default
+
+Commands run as a non-root user by default. This matches the agent's natural operating environment and, critically, it is required for Claude Code: the CLI refuses to run with `--dangerously-skip-permissions` when it detects it is executing as root.
+
+When you need elevated privileges — for example, to install a system package during eval setup — pass `{ root: true }` to `runCommand`. Use it only for setup commands; the agent itself and all validation should run without it.
+
+```ts
+// In a sandbox.setup hook: install a system dependency as root, then work normally
+await sandbox.runCommand("apt-get", ["install", "-y", "openjdk-17-jdk"], { root: true });
+
+// The agent and all subsequent steps use the default non-root user
+await sandbox.runCommand("npm", ["install"]);
+```
+
+The `root: true` semantics are consistent across every backend:
+
+| Backend | Default user | `{ root: true }` mapping |
+|---|---|---|
+| Docker | `node` (UID 1000) | `docker exec --user root` |
+| E2B | `user` (non-root) | `commands.run(cmd, { user: "root" })` |
+| Vercel Sandbox | `vercel-sandbox` (non-root) | `runCommand(cmd, { sudo: true })` |
+| Daytona | configured at create time | per-command `user` override |
+| Modal | root by default | no-op (already root) |
+
+<Warning>
+  Backends that are always root (such as Modal) treat `{ root: true }` as a no-op. Backends that cannot elevate at all will throw. Either way, the semantic contract is the same — your eval code never needs to branch on which backend is active.
+</Warning>
+
+---
+
+## Available backends
+
+<Tabs>
+  <Tab title="Docker (default)">
+    Docker is the default backend and requires no cloud credentials — only a local Docker installation. It is the right choice for local development and most CI pipelines.
+
+    **How it works:**
+    - Starts a `node:24-slim` container running `sleep infinity`
+    - Runs all commands via `docker exec` (with `AutoRemove` on stop)
+    - Default user is `node` (UID 1000); global npm packages install to the user directory and are added to `PATH`
+    - The slim base image is bootstrapped with `ca-certificates` and `git`
+    - Files are uploaded using tar + `putArchive`, with a `chown` pass to fix ownership
+    - Docker's multiplexed exec stream (8-byte frame header) is parsed correctly
+
+    ```shell
+    npx fasteval --agent claude-code --sandbox docker fixtures/button
+    ```
+
+    ```ts
+    // fasteval.config.ts
+    export default defineConfig({
+      sandbox: "docker",
+    });
+    ```
+  </Tab>
+  <Tab title="Vercel">
+    The Vercel backend spins up a cloud micro-VM. It is well-suited for high-concurrency CI runs where you don't want to manage Docker infrastructure.
+
+    **Requirements:** set `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` in your environment.
+
+    ```shell
+    VERCEL_TOKEN=... npx fasteval --agent claude-code --sandbox vercel fixtures/button
+    ```
+
+    ```ts
+    // fasteval.config.ts
+    export default defineConfig({
+      sandbox: "vercel",
+    });
+    ```
+
+    The Vercel backend handles streaming command timeouts for long-running agent sessions using a detach-and-reconnect strategy so commands are never cut short mid-execution.
+  </Tab>
+  <Tab title="Auto">
+    The `"auto"` mode inspects the environment and picks the best available backend. If `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` is present, it uses Vercel; otherwise it falls back to Docker.
+
+    ```ts
+    // fasteval.config.ts
+    export default defineConfig({
+      sandbox: "auto",   // the recommended default for most teams
+    });
+    ```
+
+    This is the recommended setting if you want local runs to use Docker automatically and CI runs to use Vercel once you add a token to your secrets.
+  </Tab>
+  <Tab title="Third-party">
+    fasteval's `createSandbox` function has a plugin-style extension point for third-party sandboxing services. Any backend that implements the `Sandbox` interface can be registered by package name. Pass `--sandbox <name>` to activate it.
+
+    Currently documented third-party integrations include E2B, Modal, and Daytona. Because the `Sandbox` interface is intentionally small (run / read / write / stop), integrating a new provider requires minimal code.
+
+    ```shell
+    npx fasteval --agent claude-code --sandbox e2b fixtures/button
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Selecting a backend
+
+You can select the backend on the CLI, in config, or by relying on auto-detection:
+
+<Steps>
+  <Step title="CLI flag (highest priority)">
+    ```shell
+    npx fasteval --sandbox docker fixtures/button
+    npx fasteval --sandbox vercel fixtures/button
+    ```
+  </Step>
+  <Step title="Config file">
+    ```ts
+    // fasteval.config.ts
+    export default defineConfig({
+      sandbox: "auto",   // "docker" | "vercel" | "auto" | "<third-party-name>"
+    });
+    ```
+  </Step>
+  <Step title="Auto-detection fallback">
+    If neither is set, fasteval runs `resolveBackend` which returns `"vercel"` when a cloud token is present and `"docker"` otherwise.
+  </Step>
+</Steps>
+
+---
+
+## Docker backend details
+
+The Docker backend is zero-config and handles all the quirks of running a coding agent as a non-root user:
+
+- **Base image:** `node:24-slim`
+- **Default user:** `node` (UID 1000) — matches the user Claude Code expects when `--dangerously-skip-permissions` is used
+- **Global npm installs:** because the non-root user cannot write to `/usr/local/lib`, fasteval configures npm to install globals into the user's home directory and prepends that directory to `PATH`
+- **Slim image bootstrap:** `apt-get install ca-certificates git` runs automatically on first use
+- **File uploads:** uses Docker's `putArchive` API (tar format) followed by a `chown` to restore correct ownership after the root-owned write
+- **Stream parsing:** Docker's exec API multiplexes stdout and stderr on a single stream with an 8-byte frame header; fasteval parses this correctly so you always get clean stdout and stderr separately
+
+---
+
+## Vercel backend details
+
+The Vercel backend requires one of:
+- `VERCEL_TOKEN` — a personal access token from your Vercel account settings
+- `VERCEL_OIDC_TOKEN` — an OIDC token, suitable for CI environments with Vercel's OIDC integration
+
+```shell
+export VERCEL_TOKEN=vercel_...
+npx fasteval --sandbox vercel --agent claude-code fixtures/button
+```
+
+The interface exposed to adapters is identical to Docker. You can switch an entire eval suite from Docker to Vercel by changing one line in `fasteval.config.ts` — no adapter code changes required.
+
+---
+
+## Performance: warm pools and sandbox reuse
+
+Sandbox cold-start time is the dominant latency factor in large eval runs. fasteval offers two mechanisms to address it:
+
+<CardGroup cols={2}>
+  <Card title="Warm pool" icon="fire">
+    fasteval pre-creates a pool of sandboxes before any eval runs. When a case starts, it claims an already-running sandbox instead of waiting for a cold boot. Cold-start cost moves off the critical path entirely.
+  </Card>
+  <Card title="Sandbox reuse" icon="recycle">
+    After a case finishes, the sandbox can be reset with `git clean` back to the baseline state and handed to the next case instead of being destroyed. This trades a small contamination risk for significantly faster throughput. Reuse is **off by default**; enable it in your runner config when speed matters more than absolute isolation.
+  </Card>
+</CardGroup>
+
+Warm pools and reuse are scheduler-level features managed by the [Runner](/guides/runner). Individual sandbox backends only need to support fast `create` and `reset` operations — the scheduling logic lives in fasteval core.

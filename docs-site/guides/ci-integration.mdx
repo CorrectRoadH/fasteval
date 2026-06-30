@@ -1,0 +1,190 @@
+---
+title: "Run fasteval evals in GitHub Actions and CI pipelines"
+sidebarTitle: "CI Integration"
+description: "Integrate fasteval into GitHub Actions or any CI system. Evals exit non-zero on failure, report JUnit XML, and cache results to speed up repeat runs."
+---
+
+Evals are most valuable when they run on every change, not just locally before a deploy. Integrating fasteval into CI gives you an automatic regression gate: the pipeline turns red if any agent behavior regresses, the JUnit XML report surfaces exactly which eval failed in your test dashboard, and fingerprint-based caching keeps repeat runs fast by skipping evals whose fixtures and config haven't changed.
+
+## Why evals belong in CI
+
+Agent behavior can regress just like any other code. A prompt template change, a new tool registration, a dependency update, or a model version bump can silently break an eval that passed yesterday. Running evals in CI catches these regressions before they reach production — in the same way unit tests catch logic bugs before they ship.
+
+## Exit codes
+
+fasteval's exit codes map directly to CI pass/fail:
+
+| Condition | Exit code | CI result |
+|-----------|-----------|-----------|
+| All evals `passed` (or `scored` without `--strict`) | `0` | ✅ Green |
+| Any eval `failed` | Non-zero | ❌ Red |
+| Any eval `scored` with `--strict` | Non-zero | ❌ Red |
+
+The distinction between `scored` and `failed` matters: a `scored` verdict means all hard gate assertions passed but a soft quality threshold (e.g. an LLM-as-judge score) fell below its target. Without `--strict`, this is yellow — it surfaces in the report but doesn't break the build. With `--strict`, it turns red.
+
+<Tip>
+  Use `--strict` on nightly runs or release branches where quality regressions matter. Leave it off on PR runs so soft-assertion noise doesn't block routine development.
+</Tip>
+
+## GitHub Actions example
+
+```yaml
+# .github/workflows/evals.yml
+name: Evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Restore eval cache
+        uses: actions/cache@v4
+        with:
+          path: .fasteval
+          key: fasteval-${{ hashFiles('evals/**', 'fasteval.config.ts') }}
+          restore-keys: fasteval-
+
+      - name: Run evals
+        run: npx fasteval --strict --junit .fasteval/junit.xml
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Publish test results
+        uses: mikepenz/action-junit-report@v4
+        if: always()
+        with:
+          report_paths: .fasteval/junit.xml
+```
+
+## Setting up secrets
+
+fasteval itself doesn't manage API keys — each agent adapter reads the keys it needs from environment variables. Add your keys as repository secrets in GitHub, then pass them as `env` in the workflow step:
+
+<Steps>
+  <Step title="Add secrets to your repository">
+    Go to **Settings → Secrets and variables → Actions** and add the secrets your agents need. Common values:
+    - `ANTHROPIC_API_KEY` — for Claude Code and claude-haiku-4-5 judge
+    - `OPENAI_API_KEY` — for Codex and GPT-based agents
+  </Step>
+  <Step title="Pass secrets as env in the workflow">
+    Reference them under the `env` key of the step that runs `npx fasteval`:
+    ```yaml
+    - name: Run evals
+      run: npx fasteval --strict
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    ```
+  </Step>
+  <Step title="Verify secrets are available">
+    Use `--dry` to confirm discovery runs cleanly without hitting the API before burning tokens on a misconfigured run.
+  </Step>
+</Steps>
+
+## JUnit reporter
+
+Pass `--junit <path>` to write a JUnit XML report alongside the run. Most CI systems can ingest JUnit XML and display per-test results in their UI:
+
+```bash
+npx fasteval --junit .fasteval/junit.xml
+```
+
+You can also configure the reporter permanently in `fasteval.config.ts` so you never have to remember the flag:
+
+```ts
+// fasteval.config.ts
+import { defineConfig } from "fasteval";
+import { Console, JUnit } from "fasteval/reporters";
+
+export default defineConfig({
+  reporters: [Console(), JUnit(".fasteval/junit.xml")],
+  judge: { model: "anthropic/claude-haiku-4-5" },
+  maxConcurrency: 4,
+});
+```
+
+## Checking discovery without running
+
+Use `--dry` to verify that your eval files are discovered correctly — it prints the full list of evals that would run, without executing any of them or making any API calls:
+
+```bash
+npx fasteval --dry
+npx fasteval memory/ --dry   # check a subset
+```
+
+This is useful for debugging filter expressions and confirming that new evals appear in CI before you burn tokens on a full run.
+
+## Caching `.fasteval/` between runs
+
+fasteval stores fingerprinted results in `.fasteval/`. On the next run, any eval whose fixture and config fingerprint is unchanged is skipped and its cached result is reused. Persisting `.fasteval/` in CI makes repeated runs dramatically faster — only changed evals re-run.
+
+In GitHub Actions, cache the directory using the file hash of your evals and config as the cache key:
+
+```yaml
+- name: Restore eval cache
+  uses: actions/cache@v4
+  with:
+    path: .fasteval
+    key: fasteval-${{ hashFiles('evals/**', 'fasteval.config.ts') }}
+    restore-keys: fasteval-
+```
+
+<Note>
+  The `restore-keys` fallback lets a run start from the most recent partial cache even when the exact key doesn't match. fasteval will re-run only the evals that have actually changed.
+</Note>
+
+## Controlling concurrency in CI
+
+CI runners have fixed CPU and memory budgets. Use `--max-concurrency` to keep sandbox evals from exhausting resources:
+
+```bash
+# Conservative setting for a standard 2-CPU GitHub-hosted runner
+npx fasteval --max-concurrency 2
+
+# Higher value for large runners or cloud sandbox backends
+npx fasteval --max-concurrency 8
+```
+
+You can also set `maxConcurrency` in `fasteval.config.ts` and override it per CI environment.
+
+## Recommended CI patterns
+
+<CardGroup cols={2}>
+  <Card title="PR runs" icon="code-pull-request">
+    Run evals on every pull request without `--strict` and with a moderate `--max-concurrency`. Focus on fast feedback: use `--tag smoke` to run only a subset of critical evals if the full suite is too slow for PRs.
+
+    ```yaml
+    run: npx fasteval --tag smoke --max-concurrency 4
+    ```
+  </Card>
+  <Card title="Nightly full matrix" icon="moon">
+    Run the full eval suite nightly with `--strict` and `--no-early-exit` to collect complete pass-rate distributions. Use experiments to compare agents and models and track stability over time.
+
+    ```yaml
+    run: npx fasteval exp compare --strict --no-early-exit
+    ```
+  </Card>
+</CardGroup>
+
+## When to use `--strict`
+
+| Scenario | Recommendation |
+|----------|---------------|
+| PR gate — block on hard failures only | No `--strict` |
+| Release branch — block on any quality regression | `--strict` |
+| Nightly stability run — measure soft assertion trends | `--strict`, with results stored for trending |
+| Local development iteration | No `--strict` |

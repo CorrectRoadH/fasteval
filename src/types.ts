@@ -625,6 +625,7 @@ export interface ExperimentDef {
   timeoutMs?: number;
   sandbox?: SandboxBackend;
   budget?: number;
+  maxConcurrency?: number;
   hooks?: LifecycleHooks;
 }
 

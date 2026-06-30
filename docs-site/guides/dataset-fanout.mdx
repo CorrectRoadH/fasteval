@@ -1,0 +1,193 @@
+---
+title: "Dataset fan-out: run evals across many test cases"
+sidebarTitle: "Datasets"
+description: "Export an array from a .eval.ts file to fan out into many evals. Use loadYaml or loadJson to drive evals from external datasets with stable IDs."
+---
+
+Sometimes one eval scenario isn't enough — you want to verify that your agent handles dozens of inputs correctly, with each case getting its own pass/fail verdict in the report. fasteval's **dataset fan-out** lets you express this without creating dozens of individual files. When you export an array from a `.eval.ts` file, fasteval treats each element as a separate eval, assigns it a stable ID, and runs them all with the same concurrency and reporting as any other eval suite.
+
+## How fan-out works
+
+A normal `.eval.ts` file exports a single `defineEval`. A dataset file exports an **array** of `defineEval` calls. fasteval detects the array and creates one eval per element:
+
+```ts
+// evals/sql.eval.ts
+import { defineEval } from "fasteval";
+import { equals } from "fasteval/expect";
+
+export default [
+  defineEval({
+    description: "Count users",
+    async test(t) {
+      await t.send("Query the total number of rows in the users table");
+      t.check(t.reply, equals("SELECT COUNT(*) FROM users;"));
+    },
+  }),
+  defineEval({
+    description: "Recent orders",
+    async test(t) {
+      await t.send("Query the 10 most recent orders");
+      t.check(t.reply, equals("SELECT * FROM orders ORDER BY created_at DESC LIMIT 10;"));
+    },
+  }),
+];
+```
+
+The file `evals/sql.eval.ts` becomes the **file-level ID** `sql`. Each element gets a zero-padded index appended: `sql/0000`, `sql/0001`, and so on.
+
+## Generated ID format
+
+| Element | Generated ID |
+|---|---|
+| Index 0 | `sql/0000` |
+| Index 1 | `sql/0001` |
+| Index 99 | `sql/0099` |
+| Index 100 | `sql/0100` |
+
+The zero-padding ensures lexicographic sort order matches numeric order, making IDs stable and predictable across runs. Reordering elements in the array changes their IDs — if stable IDs across edits matter, use a dataset file instead and keep rows append-only.
+
+## Loading from YAML and JSON
+
+Writing every test case inline gets unwieldy fast. Use `loadYaml` or `loadJson` from `fasteval/loaders` to read cases from external files, then map them into `defineEval` calls:
+
+<CodeGroup>
+
+```ts evals/sql.eval.ts
+import { defineEval } from "fasteval";
+import { loadYaml } from "fasteval/loaders";
+import { equals } from "fasteval/expect";
+
+const doc = await loadYaml("evals/data/sql-cases.yaml");
+const rows = doc.cases as { task: string; prompt: string; sql: string }[];
+
+export default rows.map((row) =>
+  defineEval({
+    description: row.task,
+    async test(t) {
+      await t.send(row.prompt);
+      t.succeeded();
+      t.check(t.reply, equals(row.sql));
+    },
+  }),
+);
+```
+
+```yaml evals/data/sql-cases.yaml
+cases:
+  - task: Count users
+    prompt: Query the total number of rows in the users table
+    sql: SELECT COUNT(*) FROM users;
+
+  - task: Recent orders
+    prompt: Query the 10 most recent orders
+    sql: SELECT * FROM orders ORDER BY created_at DESC LIMIT 10;
+
+  - task: Active users this month
+    prompt: Find all users who signed in during the current month
+    sql: SELECT * FROM users WHERE last_sign_in >= date_trunc('month', now());
+```
+
+</CodeGroup>
+
+The `loadYaml` call returns the parsed document as a plain object. Cast the cases array to the shape you need, then map normally. `loadJson` works identically but reads a `.json` file:
+
+```ts
+import { loadJson } from "fasteval/loaders";
+
+const cases = await loadJson("evals/data/sql-cases.json");
+```
+
+<Note>
+  The path you pass to `loadYaml` / `loadJson` is resolved relative to the project root (where `fasteval.config.ts` lives), not relative to the eval file. Use paths like `evals/data/my-dataset.yaml`.
+</Note>
+
+## Filtering dataset evals
+
+Because each eval in a fan-out set shares the same file-level ID prefix, you can run them all with a single CLI argument:
+
+```bash
+# Run all evals from evals/sql.eval.ts
+npx fasteval sql
+
+# Run only the first case
+npx fasteval sql/0000
+
+# Run cases 0–2
+npx fasteval sql/0000 sql/0001 sql/0002
+```
+
+This makes it easy to re-run just the failing cases after a fix, or to run a subset during development without touching the dataset file.
+
+## When to use datasets vs separate files
+
+<Tabs>
+  <Tab title="Use a dataset file when…">
+    - You have many cases that follow the same eval structure (same prompt template, same assertions)
+    - Your test cases come from an external source (a spreadsheet, a database export, a curated YAML file)
+    - You want non-engineers to be able to add cases without touching TypeScript
+    - The number of cases is likely to grow over time
+  </Tab>
+  <Tab title="Use separate files when…">
+    - Each case has meaningfully different assertion logic
+    - Cases require different agent configurations or timeouts
+    - You want each case to have a human-meaningful ID (e.g., `billing/refund` instead of `billing/0003`)
+    - You have only a handful of cases and inline code is clearer
+  </Tab>
+</Tabs>
+
+<Tip>
+  Store all dataset files under `evals/data/` by convention. This keeps them out of the eval discovery scan (which only looks for `.eval.ts` files and `PROMPT.md` directories) and signals their purpose at a glance.
+</Tip>
+
+## Complete example
+
+Here is the full pattern for a YAML-driven dataset eval with multiple assertion types:
+
+```ts
+// evals/sql.eval.ts
+import { defineEval } from "fasteval";
+import { loadYaml } from "fasteval/loaders";
+import { equals, includes } from "fasteval/expect";
+
+const doc = await loadYaml("evals/data/sql-cases.yaml");
+const rows = doc.cases as {
+  task: string;
+  prompt: string;
+  sql: string;
+  mustInclude?: string;
+}[];
+
+export default rows.map((row) =>
+  defineEval({
+    description: row.task,
+    async test(t) {
+      await t.send(row.prompt);
+
+      // Gate: the run must complete without error
+      t.succeeded();
+
+      // Gate: the reply must exactly match the expected SQL
+      t.check(t.reply, equals(row.sql));
+
+      // Optional: if the case specifies a required keyword, check for it
+      if (row.mustInclude) {
+        t.check(t.reply, includes(row.mustInclude));
+      }
+
+      // Soft: judge whether the reply is well-formed SQL
+      t.judge.closedQA("Is this valid, syntactically correct SQL?").atLeast(0.8);
+    },
+  }),
+);
+```
+
+Running this suite produces output like:
+
+```
+✓ sql/0000  Count users (312ms)
+✓ sql/0001  Recent orders (289ms)
+✗ sql/0002  Active users this month (401ms)
+  - gate: equals [FAILED]
+    Expected: SELECT * FROM users WHERE last_sign_in >= date_trunc('month', now());
+    Received: SELECT * FROM users WHERE created_at >= date_trunc('month', now());
+```

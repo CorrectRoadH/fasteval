@@ -1,0 +1,198 @@
+---
+title: "Experiments: compare agents and models with run matrices"
+sidebarTitle: "Experiments"
+description: "Use fasteval experiments to run the same evals across multiple agents, models, and feature flags. Measure pass rates, cost, and latency side by side."
+---
+
+A single eval run tells you whether an agent passed today. An experiment tells you which agent passes most reliably, at what cost, and how performance changes when you swap models or toggle feature flags. Experiments expand a configuration matrix — agents × models × feature flags × runs — into a batch of attempts, then aggregate results into pass rates, mean latency, token usage, and estimated cost, side by side across every configuration.
+
+## What an experiment is
+
+An experiment is a `defineExperiment` configuration that describes one or more agents, one or more models, how many times to run each eval, and which evals to include. When you run `npx fasteval exp <group>`, the runner expands the matrix, executes every attempt under the same bounded-concurrency scheduler as a regular run, and produces a comparative report.
+
+```ts
+import { defineExperiment } from "fasteval";
+import { claudeCode, codex } from "fasteval";
+
+export default defineExperiment({
+  agent: [claudeCode, codex],           // compare two agents
+  model: ["gpt-5.4", "gpt-5.4-mini"],  // across two models
+  runs: 5,                              // 5 attempts per (agent, model, eval) cell
+  earlyExit: false,                     // run all 5 to get the full distribution
+  evals: "memory/",                     // only evals whose ID starts with "memory/"
+  budget: 20.00,                        // stop dispatching after ~$20
+  flags: {
+    webResearch: false,                 // feature flags injected via ctx.flags / t.flags
+  },
+  hooks: {
+    sandbox: {
+      async setup(sb, ctx) {
+        await sb.writeFile(".env", `MODEL=${ctx.model}`);
+      },
+    },
+  },
+});
+```
+
+<Note>
+  You don't supply an `id` or `name` in `defineExperiment`. The experiment's ID is derived from its file path, exactly like evals.
+</Note>
+
+## The `defineExperiment` shape
+
+<Accordion title="agent">
+  An array of agent objects or agent names to include in the matrix. Each value references an agent registered in your config or one of the built-in coding agents (`claude-code`, `codex`, `bub`).
+</Accordion>
+
+<Accordion title="model">
+  An array of model identifiers (e.g. `"gpt-5.4"`, `"anthropic/claude-opus-4-8"`). Each model is passed to the agent as `ctx.model`. If the agent doesn't accept a model override, this field is ignored by that agent.
+</Accordion>
+
+<Accordion title="runs">
+  How many times to run each `(agent, model, eval)` cell. With `runs: 5`, each cell produces 5 attempts. Results are aggregated into a pass rate rather than a single verdict.
+</Accordion>
+
+<Accordion title="earlyExit">
+  Whether to stop remaining retries for an eval as soon as one attempt passes. Defaults to `true`. Set to `false` to collect the full pass-rate distribution — useful for nightly stability runs.
+</Accordion>
+
+<Accordion title="evals">
+  A string prefix (or array of prefixes) filtering which evals are included in this experiment. Works the same as the positional argument to `npx fasteval`. Omit to include all discovered evals.
+</Accordion>
+
+<Accordion title="flags">
+  A record of feature flags injected into every attempt as `ctx.flags` (agent side) and `t.flags` (eval side). Use flags to toggle features — memory backends, tool allowlists, effort settings — without creating separate agent definitions.
+</Accordion>
+
+<Accordion title="budget">
+  An estimated cost ceiling in USD. The runner stops dispatching new attempts once accumulated cost exceeds this value. Can be overridden at runtime with `--budget`.
+</Accordion>
+
+<Accordion title="hooks">
+  Per-experiment lifecycle hooks. `hooks.sandbox.setup` and `hooks.sandbox.teardown` run around each attempt and receive the sandbox handle and `ctx` (including `ctx.flags` and `ctx.model`).
+</Accordion>
+
+## Running experiments
+
+```bash
+# Run all experiments in experiments/compare/
+npx fasteval exp compare
+
+# Run a single experiment file
+npx fasteval exp compare/codex-gpt-5.4
+
+# Override budget at runtime
+npx fasteval exp compare --budget 5.00
+
+# Collect full distribution (disable early-exit)
+npx fasteval exp compare --no-early-exit
+```
+
+## Organizing experiments: directory as group
+
+The directory an experiment file lives in determines its **comparison group**. Files in the same directory are treated as peer configurations — running `fasteval exp compare` runs all of them and places their results side by side in the report.
+
+The `coding-agent-memory-evals` project uses exactly this pattern:
+
+```
+experiments/
+└─ compare/
+   ├─ bub-gpt-5.4.ts       # bub agent, gpt-5.4
+   └─ codex-gpt-5.4.ts     # codex agent, gpt-5.4
+```
+
+Each file is an independent `defineExperiment` configuration. Running `fasteval exp compare` executes both and renders a side-by-side comparison report.
+
+<CodeGroup>
+```ts experiments/compare/bub-gpt-5.4.ts
+import { defineExperiment } from "fasteval";
+import { bubAgent } from "fasteval";
+
+export default defineExperiment({
+  agent: [bubAgent],
+  model: ["gpt-5.4"],
+  runs: 5,
+  evals: "memory/",
+});
+```
+
+```ts experiments/compare/codex-gpt-5.4.ts
+import { defineExperiment } from "fasteval";
+
+export default defineExperiment({
+  agent: ["codex"],
+  model: ["gpt-5.4"],
+  runs: 5,
+  evals: "memory/",
+});
+```
+</CodeGroup>
+
+## Matrix expansion
+
+The runner expands the full Cartesian product of agents × models, then multiplies by evals × runs. For example: `agent: [claude-code, codex]` × `runs: 5` × 3 evals = **30 attempts**. All 30 run through the same bounded-concurrency pool.
+
+## Pass rate reporting
+
+Results are aggregated per `(agent, model, eval)` cell into a pass rate rather than a single pass/fail verdict:
+
+```
+fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s · 58k tok · $0.44
+fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.39
+```
+
+Each row shows:
+- **pass@k** — how many of the k attempts passed (e.g. `pass@5 = 4/5`)
+- **mean time** — average wall-clock duration per attempt
+- **token usage** — average tokens consumed
+- **estimated cost** — average USD cost per attempt
+
+## Why pass rate matters
+
+A single passing run does not mean an agent is reliable. An agent that passes 1 out of 5 attempts at the same task is fundamentally different from one that passes 5 out of 5 — even though both have at least one passing run. Pass rate measures **stability**, not luck. This is particularly important for:
+
+- Coding agents that interact with real file systems and have inherent non-determinism
+- Evaluating whether a new model tier or feature flag genuinely improves reliability, or just got lucky once
+
+## Model and feature flag injection
+
+The experiment runner injects `ctx.model` and `ctx.flags` into every attempt. Your agent reads these to configure itself:
+
+```ts
+// Inside your sandbox agent's send()
+const args = ["--print", "--dangerously-skip-permissions"];
+if (ctx.model) args.push("--model", ctx.model);
+if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
+args.push(input.text);
+```
+
+Your evals can also read flags through `t.flags`:
+
+```ts
+export default defineEval({
+  async test(t) {
+    // t.flags contains the experiment's flags object
+    await t.send("Complete the task.");
+    t.succeeded();
+  },
+});
+```
+
+This means the same agent definition and the same eval definition can be reused across every cell of the matrix. You change the experiment configuration, not the agent or eval code.
+
+## Budget and full-distribution runs
+
+For production stability measurements you typically want two things together: a meaningful budget ceiling to prevent runaway costs, and `earlyExit: false` to collect the full distribution rather than stopping after the first pass:
+
+```ts
+export default defineExperiment({
+  agent: ["claude-code", "codex"],
+  model: ["gpt-5.4"],
+  runs: 10,
+  earlyExit: false,    // collect all 10 results per cell
+  budget: 50.00,       // but stop if accumulated cost hits $50
+  evals: "memory/",
+});
+```
+
+This gives you true pass@10 distributions while bounding your maximum spend.

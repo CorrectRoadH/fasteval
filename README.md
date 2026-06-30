@@ -7,6 +7,7 @@
 [![typescript](https://img.shields.io/badge/typescript-5.6-blue?style=flat-square)](tsconfig.json)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](package.json)
 [![docs](https://img.shields.io/badge/docs-readable-111827?style=flat-square)](docs/README.md)
+[![mintlify](https://img.shields.io/badge/mintlify-docs-5b5bd6?style=flat-square)](docs-site/docs.json)
 
 [中文](README.zh.md)
 
@@ -128,6 +129,7 @@ Official Adapters
 
 ## Documentation
 
+- [Mintlify docs site](docs-site/README.md)
 - [Documentation home](docs/README.md)
 - [Getting Started](docs/getting-started.md)
 - [Authoring](docs/authoring.md)

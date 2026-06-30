@@ -1,0 +1,94 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "fasteval",
+  "theme": "luma",
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/images/logo.svg",
+    "dark": "/images/logo.svg"
+  },
+  "colors": {
+    "primary": "#848c8e",
+    "light": "#11161e",
+    "dark": "#cfd0d2"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/CorrectRoadH/fasteval"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/evals",
+              "concepts/agents-adapters",
+              "concepts/scoring"
+            ]
+          },
+          {
+            "group": "Writing Evals",
+            "pages": [
+              "guides/authoring",
+              "guides/fixtures",
+              "guides/dataset-fanout",
+              "guides/scoring-guide"
+            ]
+          },
+          {
+            "group": "Connecting Agents",
+            "pages": [
+              "guides/remote-agent",
+              "guides/sandbox-agent",
+              "guides/sandbox-backends"
+            ]
+          },
+          {
+            "group": "Running & Observing",
+            "pages": [
+              "guides/runner",
+              "guides/experiments",
+              "guides/ci-integration",
+              "guides/viewing-results"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "API",
+            "pages": [
+              "reference/define-eval",
+              "reference/define-agent",
+              "reference/define-config",
+              "reference/expect"
+            ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "reference/cli",
+              "reference/configuration"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

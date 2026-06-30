@@ -1,0 +1,351 @@
+---
+title: "Scoring guide: assertions, judge, and cost limits"
+sidebarTitle: "Scoring Guide"
+description: "Use fasteval's five scoring mechanisms — value assertions, scoped assertions, LLM-as-judge, test-as-scoring, and efficiency checks — to grade any eval."
+---
+
+Scoring is the process of folding a run's results into a **verdict**. fasteval provides five complementary mechanisms, each suited to different kinds of evidence: precise value checks, behavioral observations, open-ended quality judgments, test suite outcomes, and efficiency budgets. Every mechanism produces a named `Assertion` with a severity and a score. At the end of a run, fasteval aggregates all assertions into a single verdict. This guide covers all five mechanisms in depth, plus how to write custom assertions and how to control severity with `.soft()` and `.gate()`.
+
+## Gate vs soft: how severity works
+
+Every assertion has a **severity** that determines how a failure affects the verdict:
+
+- **`gate`** — A hard requirement. One failed gate assertion marks the entire eval as `failed`. Use gates for facts that must be true.
+- **`soft`** — A quality signal with a threshold. Falling below the threshold downgrades the verdict to `scored` rather than `failed`. Scored evals only turn red under `--strict`. Use soft for continuous quality dimensions like similarity or judge scores.
+
+Most matchers default to `gate`. LLM-as-judge and `similarity` default to `soft`. You can always override with the chainable `.soft()` and `.gate()` methods:
+
+```ts
+t.check(t.reply, includes("regards"));            // gate by default
+t.check(t.reply, similarity(expected).gate());    // force gate
+t.judge.closedQA("Polite?").atLeast(0.7);         // soft with threshold 0.7
+t.maxTokens(80_000).soft();                        // downgrade to soft
+```
+
+---
+
+## 1. Value assertions
+
+Value assertions evaluate a specific value **in place**, at the moment you call them. Import matchers from `fasteval/expect` and pass them to `t.check()` or `t.require()`.
+
+```ts
+import {
+  includes,     // Substring or regex match        (default: gate)
+  equals,       // Deep equality                   (default: gate)
+  matches,      // Standard Schema validation      (default: gate)
+  similarity,   // Normalized Levenshtein 0–1      (default: soft)
+  satisfies,    // Custom predicate + label         (default: gate)
+} from "fasteval/expect";
+```
+
+<Tabs>
+  <Tab title="includes">
+    Checks that a string contains a substring or matches a regular expression.
+
+    ```ts
+    t.check(t.reply, includes("regards"));
+    t.check(t.reply, includes(/order #\d+/));
+    ```
+  </Tab>
+  <Tab title="equals">
+    Checks deep equality between the value and the expected result.
+
+    ```ts
+    t.check(turn.data, equals({ intent: "refund", confidence: 0.95 }));
+    ```
+  </Tab>
+  <Tab title="matches">
+    Validates the value against a Standard Schema (Zod, Valibot, etc.). Passes if the schema parse succeeds.
+
+    ```ts
+    import { z } from "zod";
+
+    t.check(
+      turn.data,
+      matches(z.object({ intent: z.enum(["refund", "ship"]) }))
+    );
+    ```
+  </Tab>
+  <Tab title="similarity">
+    Computes normalized Levenshtein distance between two strings. Returns a score between 0 and 1.
+
+    ```ts
+    t.check(t.reply, similarity("Expected answer text").atLeast(0.8));
+    // Or force it to be a hard gate:
+    t.check(t.reply, similarity("Expected answer text").gate());
+    ```
+  </Tab>
+  <Tab title="satisfies">
+    Runs any custom boolean predicate. You provide the function and a human-readable label for reports.
+
+    ```ts
+    t.check(turn.data, satisfies((d) => d.total > 0, "total is positive"));
+    t.check(t.reply, satisfies((s) => s.split(" ").length < 100, "reply under 100 words"));
+    ```
+  </Tab>
+</Tabs>
+
+### `t.check` vs `t.require`
+
+`t.check(value, assertion)` records the assertion result and continues execution. `t.require(value, assertion)` throws immediately if the assertion fails, halting the rest of `test()`. Use `t.require` for preconditions that make later assertions meaningless if they fail.
+
+```ts
+const turn = await t.send("Return the user profile as JSON");
+t.require(turn.data, matches(z.object({ id: z.string() })));  // Throws if no valid JSON
+t.check(turn.data, satisfies((d) => d.id.startsWith("usr_"), "ID has usr_ prefix"));
+```
+
+---
+
+## 2. Scoped assertions
+
+Scoped assertions observe the **entire run** rather than a single value. You register them anywhere in `test()`, but they're evaluated after `test()` finishes. They read from the standard event stream that any properly adapted agent emits.
+
+### Run and session scope
+
+```ts
+t.succeeded();                         // Run completed without failure or stuck HITL
+t.parked();                            // Run cleanly stopped awaiting HITL input
+t.messageIncludes("regards");          // Any message event's text includes this (string or regex)
+```
+
+### Tool and action scope
+
+```ts
+t.calledTool("bash", {
+  input: { command: /^pwd/ },          // input: literal (deep partial), regex, or predicate
+  count: 1,                            // Exact call count
+  status: "success",                   // Filter by call status
+});
+
+t.notCalledTool("shell", {
+  input: { command: /npm i/ },         // Same matching language as calledTool
+});
+
+t.toolOrder(["read_file", "write_file"]);  // Relative order of tool calls
+t.usedNoTools();                           // Assert no tools were called at all
+t.maxToolCalls(5);                         // Assert total tool calls ≤ 5
+t.loadedSkill("memory-v2");               // Sugar: calledTool("load_skill", { input: { skill } })
+t.calledSubagent("researcher", {
+  remoteUrl: /api\.example/,
+});
+t.noFailedActions();                       // No tool, subagent, or skill call returned failed
+```
+
+<Note>
+  The **tool matching mini-language** is shared by `calledTool` and `notCalledTool`. The `input` option supports three forms: a plain object (deep partial match — all provided keys must match), a regular expression (applied to the serialized input string), or a predicate function `(input) => boolean`. The `count` option checks the exact number of matching calls. The `status` option filters to calls with that status before checking.
+</Note>
+
+### Event-stream scope
+
+These are the underlying primitives that all tool/action assertions build on. Drop to this level when higher-level helpers don't cover your case:
+
+```ts
+t.event("input.requested", { count: 1 });             // Event type appeared (optionally with data/count match)
+t.notEvent("error");                                   // Event type never appeared
+t.eventOrder(["action.called", "subagent.called"]);   // Event groups appeared in this order
+t.eventsSatisfy("read before write", (events) => {
+  const readIdx = events.findIndex((e) => e.type === "action.called" && e.name === "read_file");
+  const writeIdx = events.findIndex((e) => e.type === "action.called" && e.name === "write_file");
+  return readIdx !== -1 && writeIdx !== -1 && readIdx < writeIdx;
+});
+```
+
+### Structured output scope (on `Turn`)
+
+```ts
+const turn = await t.send("Return the user profile as JSON");
+turn.outputEquals({ status: "ok" });                     // turn.data deep equals
+turn.outputMatches(z.object({ status: z.string() }));    // Standard Schema validation
+```
+
+### Workspace scope (sandbox evals)
+
+```ts
+t.fileChanged("src/Button.tsx");         // File was modified relative to the baseline
+t.fileDeleted("src/old.ts");             // File was deleted
+t.diff.isEmpty();                        // No files changed at all
+t.diff.get("src/Button.tsx");            // Returns the post-change file contents (use with t.check)
+t.notInDiff(/sk-[A-Za-z0-9]/);          // Diff text doesn't match this pattern (e.g. no secrets)
+t.testsPassed();                         // EVAL.ts Vitest tests all passed
+t.scriptPassed("build");                 // npm run build exited 0
+t.noFailedShellCommands();               // No shell command exited non-zero
+```
+
+`t.diff` is a queryable object. `t.diff.get("src/Button.tsx")` returns the post-change contents of a file — use it with `t.check` to assert on file content. `t.diff.isEmpty()` returns true if no files changed. `t.diff.matches(re)` and `t.notInDiff(re)` test the full unified diff string.
+
+---
+
+## 3. LLM-as-judge
+
+For open-ended responses where rules can't capture correctness, use `t.judge` to delegate scoring to a separate judge model. The judge model is completely separate from the agent under test — it never self-evaluates.
+
+```ts
+t.judge.factuality(expectedFact).atLeast(0.8);           // Is the reply factually consistent?
+t.judge.closedQA("Is this appropriate for a 10-year-old?"); // Closed yes/no judgment
+t.judge.summarizes(sourceDocument);                       // Does the reply faithfully summarize this?
+t.judge.score("Rate how concise and direct the answer is", { on: t.reply });
+```
+
+### Specifying what to evaluate
+
+By default, judge methods evaluate `t.reply` (the last assistant message). Use `{ on }` to evaluate something else:
+
+```ts
+const draft = await t.send("Draft a cover letter.");
+t.judge.closedQA("Is the tone professional and confident?", { on: draft.message });
+```
+
+### Overriding the judge model
+
+Use `{ model }` to override the judge model for a single call. The resolution order is (highest priority first):
+
+1. The `{ model }` option on the individual `t.judge.*` call
+2. The `judge.model` set on the `defineEval` for this eval
+3. The global `judge.model` in `fasteval.config.ts`
+
+```ts
+// fasteval.config.ts — global default
+defineConfig({ judge: { model: "anthropic/claude-haiku-4-5" } });
+```
+
+```ts
+// Override for a specific eval
+export default defineEval({
+  judge: { model: "anthropic/claude-opus-4-8" },
+  async test(t) {
+    t.judge.factuality(expected);  // Uses claude-opus-4-8
+  },
+});
+```
+
+```ts
+// Override for a single call
+t.judge.score("Rate technical accuracy", { model: "openai/gpt-4o" });
+```
+
+<Tip>
+  Use a fast, cheap model as the global default (e.g., `claude-haiku`) and only upgrade to a more capable model for evals where judgment quality matters most. Per-call and per-eval overrides let you do this without changing the global config.
+</Tip>
+
+---
+
+## 4. Test-as-scoring (sandbox fixtures)
+
+In sandbox fixture evals, the `EVAL.ts` file itself is the scoring mechanism. Every `test()` block in `EVAL.ts` becomes a **gate assertion**: all tests must pass for the eval to pass.
+
+```ts
+// evals/fixtures/button/EVAL.ts
+import { test, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+
+test("Button file exists", () => {
+  expect(existsSync("src/components/Button.tsx")).toBe(true);
+});
+
+test("Accepts label and onClick props", () => {
+  const src = readFileSync("src/components/Button.tsx", "utf-8");
+  expect(src).toContain("label");
+  expect(src).toContain("onClick");
+});
+```
+
+You can also run npm scripts as scoring steps. Configure `validation` in your eval or `defineAgentEval` call to control what gets run:
+
+- **`vitest`** — Run `EVAL.ts` with Vitest, plus any configured npm scripts
+- **`none`** — Run only npm scripts (no `EVAL.ts`)
+
+```ts
+t.scriptPassed("build");    // Assert that npm run build exits 0
+t.testsPassed();            // Assert that all EVAL.ts tests pass
+```
+
+---
+
+## 5. Efficiency assertions
+
+Token usage is a first-class scoring dimension in fasteval. An agent that answers correctly but uses ten times more tokens than necessary shouldn't score identically to one that answers efficiently. Usage data is collected automatically from the run's transcript.
+
+```ts
+t.maxTokens(50_000);            // Hard limit: > 50k tokens → failed (gate by default)
+t.maxCost(0.50);                // Hard limit: estimated cost > $0.50 → failed
+t.maxTokens(80_000).soft();     // Soft limit: only fails under --strict
+```
+
+You can also assert on specific token counts directly using `t.usage`:
+
+```ts
+t.check(
+  t.usage.outputTokens,
+  satisfies((n) => n < 10_000, "output is concise")
+);
+```
+
+`t.usage` is available anywhere in `test()` and contains:
+
+| Field | Description |
+|---|---|
+| `inputTokens` | Total input tokens for this run |
+| `outputTokens` | Total output tokens for this run |
+| `cacheReadTokens` | Cache-read tokens (when applicable) |
+
+<Note>
+  `t.maxCost()` requires a price table to be configured so fasteval can estimate costs from token counts. Check your `fasteval.config.ts` for cost configuration options.
+</Note>
+
+---
+
+## 6. Custom assertions
+
+A value assertion is just a function `(value) => number | Promise<number>`. Use `makeAssertion` from `fasteval/expect` to wrap any scoring logic into a reusable matcher:
+
+```ts
+import { makeAssertion } from "fasteval/expect";
+import type { Assertion } from "fasteval/expect";
+
+function jsonValid(): Assertion {
+  return makeAssertion({
+    name: "jsonValid",
+    severity: "gate",
+    score: (value) => {
+      try {
+        JSON.parse(String(value));
+        return 1;
+      } catch {
+        return 0;
+      }
+    },
+  });
+}
+
+t.check(t.reply, jsonValid());
+```
+
+Custom matchers follow the same `.soft()` / `.gate()` / `.atLeast(n)` chaining as built-in matchers. Export them from a shared file to reuse them across multiple evals.
+
+<Note>
+  For metrics that require aggregation across multiple runs — like pass@k or average tool calls — implement them in a **reporter** rather than as an assertion. Reporters have access to all run results after the suite completes.
+</Note>
+
+---
+
+## Verdict rules
+
+After all assertions are collected, fasteval folds them into a verdict in this order:
+
+```
+Execution error (timeout / exception / author bug)     → failed
+Any gate assertion did not pass                        → failed
+Explicit t.skip(reason) was called                     → skipped
+All gates passed, but a soft is below its threshold    → scored   (only fails under --strict)
+Otherwise                                              → passed
+```
+
+| Verdict | Meaning |
+|---|---|
+| `passed` | No errors, all gates passed, all softs met their thresholds |
+| `failed` | Execution error or at least one gate assertion failed |
+| `scored` | All gates passed, but at least one soft fell below its threshold |
+| `skipped` | `t.skip(reason)` was called |
+
+When you run an eval multiple times with `--runs N`, the suite-level result is a **pass rate** (fraction of runs that passed) and average duration, rather than a single verdict.

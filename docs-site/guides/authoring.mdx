@@ -1,0 +1,216 @@
+---
+title: "Authoring evals: single-turn and multi-turn patterns"
+sidebarTitle: "Authoring"
+description: "Learn how to write fasteval evals using defineEval. Cover single-turn assertions, multi-turn conversations, dataset fan-out, and sandbox fixtures."
+---
+
+Every fasteval eval is a TypeScript file that exports a `defineEval` call. The framework follows three core principles: **path-as-identity** (the file path is the eval's ID), **one file, one eval** (or one array for dataset fan-out), and **linear writing with inline assertions** (you write checks right where the conversation happens). This page walks you through the full surface area of `defineEval`, from the simplest single-turn check to multi-turn conversations and dataset-driven suites.
+
+## The `defineEval` shape
+
+`defineEval` accepts a configuration object with the following fields:
+
+```ts
+import { defineEval } from "fasteval";
+
+export default defineEval({
+  description?: string;            // Human-readable label shown in reports
+  agent?: string;                  // Agent to use by name; falls back to defaultAgent or --agent
+  tags?: string[];                 // Used with --tag to filter runs
+  judge?: JudgeConfig;             // Override the default judge model for this eval
+  reporters?: Reporter[];          // Reporters scoped to this eval only
+  timeoutMs?: number;              // Override the global timeout
+  metadata?: Record<string, unknown>;
+  async test(t) { /* interactions + assertions */ },
+});
+```
+
+<Warning>
+  You cannot set `id` or `name` on a `defineEval` call. Both fields are derived from the file path automatically: `evals/weather/brooklyn.eval.ts` becomes the ID `weather/brooklyn`. Renaming the file is how you rename the eval — IDs never go stale.
+</Warning>
+
+<Note>
+  Only files ending in `.eval.ts` are discovered by the runner. Use directory structure to express grouping: `evals/billing/refund.eval.ts` produces the ID `billing/refund`.
+</Note>
+
+## Single-turn evals
+
+A single-turn eval sends one message and asserts the agent's response. Use `t.send()` to drive the conversation, then write scoped assertions (`t.succeeded()`, `t.calledTool()`) and value assertions (`t.check()`) immediately after.
+
+```ts
+// evals/weather/brooklyn.eval.ts
+import { defineEval } from "fasteval";
+import { includes } from "fasteval/expect";
+
+export default defineEval({
+  description: "Brooklyn weather query",
+  async test(t) {
+    await t.send("What's the weather like in Brooklyn today?");
+
+    // Scoped assertions — evaluated after test() finishes
+    t.succeeded();
+    t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
+
+    // Value assertion — evaluated immediately, in place
+    t.check(t.reply, includes("sunny"));
+  },
+});
+```
+
+### The `Turn` object
+
+`t.send(message)` returns a `Turn` — an immutable snapshot of that exchange:
+
+| Property | Type | Description |
+|---|---|---|
+| `turn.events` | `StreamEvent[]` | The normalized event stream — the primary source of truth |
+| `turn.data` | `unknown` | Structured output, if the agent returned one |
+| `turn.status` | `"completed" \| "failed" \| "waiting"` | Completion status of the turn |
+| `turn.usage` | `Usage \| undefined` | Optional token usage for this turn |
+| `turn.message` | `string` | Convenience: the assistant's text reply (derived from `events`) |
+| `turn.toolCalls` | `ToolCall[]` | Convenience: tool calls made this turn (derived from `events`) |
+
+`t.reply` is a shorthand for the **last** assistant message across the whole session.
+
+### Key `t` properties
+
+| Member | Description |
+|---|---|
+| `t.reply` | Last assistant message text |
+| `t.flags` | Runtime flags passed via CLI |
+| `t.log(msg)` | Emit a structured log line into the eval's trace |
+| `t.skip(reason)` | Mark this eval as skipped and halt execution |
+
+## Multi-turn evals
+
+For multi-turn conversations, assign each `t.send()` call to a variable and assert on it right away. This keeps assertions co-located with the turn they describe, making failures easy to trace.
+
+```ts
+// evals/draft-then-send.eval.ts
+import { defineEval } from "fasteval";
+import { includes } from "fasteval/expect";
+
+export default defineEval({
+  description: "Draft an email, then send it on confirmation",
+  async test(t) {
+    const draft = await t.send("Draft a follow-up email for me.");
+    draft.expectOk();                          // Throws here if the turn failed
+    t.check(draft.message, includes("regards"));
+    t.judge.closedQA("Is the tone professional?", { on: draft.message }).atLeast(0.6);
+
+    await t.send("Good, send it.");
+    t.calledTool("send_email");
+  },
+});
+```
+
+<Tip>
+  Call `turn.expectOk()` at the start of each turn's assertion block. If the agent failed or timed out, `expectOk()` throws immediately and surfaces a clear failure message instead of a confusing assertion error on the next check.
+</Tip>
+
+### Parallel sessions
+
+When you need independent conversation threads running concurrently within one eval, call `t.newSession()` to open a fresh session that doesn't share history with the current one.
+
+## The eval context `t`
+
+The `t` argument passed to `test()` is the **eval context**. Its available methods depend on what capabilities the connected agent declares, but the core interface is always present:
+
+<Accordion title="Core t methods and properties">
+
+| Member | Description |
+|---|---|
+| `t.send(message)` | Send a message to the agent; returns a `Turn` |
+| `t.reply` | Shorthand for the last assistant message |
+| `t.check(value, assertion)` | Record a value-level assertion immediately |
+| `t.require(value, assertion)` | Like `t.check`, but throws on failure — use for preconditions |
+| `t.succeeded()` | Scoped: assert the run completed without failure |
+| `t.calledTool(name, opts?)` | Scoped: assert a tool was called (with optional matching) |
+| `t.judge` | LLM-as-judge sub-interface |
+| `t.flags` | CLI flags for this run |
+| `t.log(msg)` | Emit a structured log line |
+| `t.skip(reason)` | Skip this eval |
+| `t.newSession()` | Open a new independent conversation session |
+| `t.usage` | `{ inputTokens, outputTokens, cacheReadTokens? … }` |
+
+</Accordion>
+
+## Dataset fan-out
+
+When a `.eval.ts` file's default export is an **array**, fasteval fans it out into one eval per element. This is the idiomatic way to run many test cases from a single file.
+
+```ts
+// evals/sql.eval.ts
+import { defineEval } from "fasteval";
+import { loadYaml } from "fasteval/loaders";
+import { equals } from "fasteval/expect";
+
+const doc = await loadYaml("evals/data/sql-cases.yaml");
+const rows = doc.cases as { task: string; prompt: string; sql: string }[];
+
+export default rows.map((row) =>
+  defineEval({
+    description: row.task,
+    async test(t) {
+      await t.send(row.prompt);
+      t.succeeded();
+      t.check(t.reply, equals(row.sql));
+    },
+  }),
+);
+```
+
+```yaml
+# evals/data/sql-cases.yaml
+cases:
+  - task: Count users
+    prompt: Query the total number of rows in the users table
+    sql: SELECT COUNT(*) FROM users;
+  - task: Recent orders
+    prompt: Query the 10 most recent orders
+    sql: SELECT * FROM orders ORDER BY created_at DESC LIMIT 10;
+```
+
+fasteval generates stable, zero-padded IDs for each element: `sql/0000`, `sql/0001`, and so on. You can filter to a single case by passing its full ID, or run the whole file by passing the file-level prefix (`npx fasteval sql`).
+
+<Note>
+  `loadYaml` and `loadJson` are both available from `fasteval/loaders`. Both return the parsed document as a plain JavaScript object.
+</Note>
+
+## Sandbox fixtures
+
+When evaluating a coding agent, the task lives on disk rather than in code. A **fixture** is a directory that fasteval discovers automatically — no `.eval.ts` wrapper needed.
+
+```
+evals/fixtures/create-button/
+├─ PROMPT.md          # Task prompt sent to the agent (required)
+├─ EVAL.ts            # Validation tests, Vitest-style (required)
+├─ package.json       # Must have "type": "module"
+├─ src/               # Starting workspace the agent can see (optional)
+└─ tsconfig.json
+```
+
+Any directory containing a `PROMPT.md` is treated as a fixture, including arbitrarily nested ones (`fixtures/api/auth/`). `EVAL.ts` is **hidden from the agent** during execution — it is only uploaded after the agent finishes, so the agent cannot read the answers.
+
+For programmatic control over fixtures, use `defineAgentEval` instead. See the [Fixtures guide](/guides/fixtures) for the full picture.
+
+## Naming and organization conventions
+
+<CardGroup cols={2}>
+  <Card title="File naming" icon="file">
+    Only files ending in `.eval.ts` are discovered. Use descriptive names that match the scenario: `refund-request.eval.ts`, not `test1.eval.ts`.
+  </Card>
+  <Card title="Directory grouping" icon="folder">
+    Use directories to express feature areas. `evals/billing/refund.eval.ts` → ID `billing/refund`. Directories become ID prefixes you can filter on.
+  </Card>
+  <Card title="Datasets" icon="database">
+    Store YAML and JSON datasets under `evals/data/`. This is a convention, not a requirement, but it keeps data files out of the eval index.
+  </Card>
+  <Card title="Fixtures" icon="box">
+    Store sandbox fixtures under `evals/fixtures/`. Again, convention only — fasteval finds any directory with `PROMPT.md`.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Write `description` for humans and use the path-derived ID for machine references (CI filters, `--id` flags, test reports). A good description reads like a sentence: "Brooklyn weather query" not "brooklyn_weather_v2".
+</Tip>

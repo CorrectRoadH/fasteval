@@ -1,0 +1,259 @@
+---
+title: "fasteval agents and adapters: connect to any AI system"
+sidebarTitle: "Agents & Adapters"
+description: "Learn how fasteval connects to any AI through named agent adapters. Remote agents wrap HTTP or in-process calls; sandbox agents run CLI tools in isolation."
+---
+
+Connecting fasteval to the thing you want to evaluate is the part of the system most likely to be misunderstood, so it helps to state the two foundational claims upfront before going any further: **fasteval does not define any agent protocol**, and **the adapter is the open boundary where you own the integration**. Everything else on this page follows from those two facts.
+
+## Two terms, one concept
+
+- **Agent** is the abstraction. From fasteval's perspective, an agent is a named object with capability flags and a single `send` method. The runner interacts with nothing but this interface. It never branches on `if (agent === "claude-code")`.
+- **Adapter** is the concrete implementation. You write it (or use one of fasteval's built-ins). It knows how to authenticate, how to call your service, and how to translate whatever your AI returns into the standard event stream.
+
+You select an agent by name — `--agent <name>` — not by URL. The URL, API key, or CLI invocation is the adapter's private configuration. fasteval never sees it.
+
+## Why `--agent` and not `--url`
+
+Some eval frameworks define a wire protocol and let you point at any compatible endpoint with a URL. fasteval deliberately does not do this, because **there is no single protocol that every AI agent speaks**. Forcing your agent to conform to an external protocol would mean wrapping it in a compatibility shim instead of testing it as it actually runs.
+
+Instead, you write a small adapter that knows your agent's protocol and normalizes its output. The adapter's URL (or any other connection detail) is read from environment variables or closure — the core never touches it:
+
+```shell
+# Evaluate local and production with the same adapter; URL is its private config
+MY_BOT_URL=http://localhost:3000  npx fasteval weather --agent my-bot   # local
+MY_BOT_URL=https://prod.example.com npx fasteval weather --agent my-bot # production
+```
+
+## The Agent contract
+
+Regardless of whether the adapter wraps an in-process function, an HTTP endpoint, or a sandbox CLI, every agent exposes the same interface to the runner:
+
+```ts
+interface Agent {
+  readonly name: string;                         // "my-bot" / "claude-code" / "codex"
+  readonly capabilities: AgentCapabilities;
+  send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+}
+
+interface AgentCapabilities {
+  conversation?: boolean;        // supports multiple t.send() calls per eval
+  toolObservability?: boolean;   // can produce action.* events → t.calledTool()
+  workspace?: boolean;           // works on a filesystem → t.diff / t.sandbox
+}
+
+interface AgentContext {
+  readonly signal: AbortSignal;
+  readonly model?: ModelTier;            // provided by the experiment; omit → agent's native default
+  readonly flags: Readonly<Record<string, unknown>>; // experiment feature flags, forwarded to agent
+  readonly sandbox?: Sandbox;            // only present for sandbox agents (set by --sandbox)
+  readonly session: { id?: string; readonly isNew: boolean }; // for multi-turn resume / newSession
+  log(msg: string): void;
+}
+
+interface Turn {
+  readonly events: StreamEvent[];  // ★ standard event stream — the core product of every adapter
+  readonly data?: unknown;         // structured output (for outputEquals / outputMatches)
+  readonly status: "completed" | "failed" | "waiting"; // waiting = parked on HITL input
+  readonly usage?: Usage;          // token usage (input / output / cache tokens)
+}
+```
+
+`send` is the **single verb**. `Turn.events` is the **single product**. The difference between adapters is entirely in how `send` translates the raw response into `events`.
+
+## Capability flags shape your `t` context
+
+The `AgentCapabilities` flags you declare in your adapter determine which methods are available in `test(t)`. This is enforced at the TypeScript type level — you cannot call `t.calledTool()` if the agent hasn't declared `toolObservability: true`, and you will get a compile error rather than a runtime surprise.
+
+| Capability | Methods unlocked on `t` |
+|---|---|
+| *(any agent)* | `t.send`, `t.check`, `t.require`, `t.judge`, `t.log`, `t.skip` |
+| `conversation` | multiple `t.send()` calls, `t.reply`, `t.newSession()` |
+| `toolObservability` | `t.calledTool()`, `t.notCalledTool()`, `t.toolOrder()`, `t.usedNoTools()`, `t.loadedSkill()`, `t.calledSubagent()`, `t.noFailedActions()`, `t.event()`, `t.notEvent()`, `t.maxToolCalls()` |
+| `workspace` *(sandbox agents)* | `t.sandbox`, `t.diff`, `t.transcript`, `t.fileChanged()`, `t.testsPassed()`, `t.scriptPassed()` |
+
+## The standard event stream
+
+The most important thing an adapter does is not connect to the AI — it is **normalizing the AI's output into the standard event stream**. Once that normalization happens, the entire assertion vocabulary works for free, regardless of which AI produced the data.
+
+```ts
+type StreamEvent =
+  | { type: "message"; role: "assistant" | "user"; text: string }
+  | { type: "action.called"; callId: string; name: string; input: JsonValue }
+  | { type: "action.result"; callId: string; output?: JsonValue;
+      status: "completed" | "failed" | "rejected" }
+  | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
+  | { type: "subagent.completed"; callId: string; output?: JsonValue;
+      status: "completed" | "failed" }
+  | { type: "input.requested"; request: InputRequest }
+  | { type: "thinking"; text: string }
+  | { type: "error"; message: string };
+```
+
+The core's `deriveRunFacts(events)` folds this flat stream into structured facts — `toolCalls`, `subagentCalls`, `parked`, `messageCount` — and all scoped assertions (`t.calledTool`, `t.succeeded`, `t.noFailedActions`, etc.) read from those derived facts. Your adapter only needs to produce correct events; scoring is handled entirely by the core.
+
+<Tip>
+Skill loading (`load_skill`) is just an `action.called` event — so `t.loadedSkill("memory-v2")` is syntax sugar for `t.calledTool("load_skill", { input: { skill: "memory-v2" } })`. No special event type needed.
+</Tip>
+
+## Two transport kinds
+
+There are two functions for defining adapters. Both produce agents with identical capabilities — they differ only in how `send` works internally.
+
+### `defineAgent` — remote and in-process agents
+
+Use `defineAgent` when your subject under test is a function you can call directly, or a service you reach over HTTP. The `send` method is entirely in your control: call a local function, fire a `fetch`, or do anything else. Your only obligation is to map the response to `StreamEvent[]`.
+
+<CodeGroup>
+```ts In-process adapter
+// agents/my-agent.ts
+import { defineAgent } from "fasteval";
+import { myAgent } from "../src/agent.js";
+
+export default defineAgent({
+  name: "my-agent",
+  capabilities: { conversation: true, toolObservability: true },
+  async send(input, ctx) {
+    const res = await myAgent.handle(input.text, { signal: ctx.signal });
+    return {
+      events: toStreamEvents(res),   // your mapping function
+      data: res.json,
+      status: "completed",
+    };
+  },
+});
+```
+
+```ts Remote HTTP adapter
+// agents/support-bot.ts
+import { defineAgent } from "fasteval";
+
+export default defineAgent({
+  name: "support-bot",
+  capabilities: { conversation: true, toolObservability: true },
+  async send(input, ctx) {
+    const r = await fetch(`${process.env.SUPPORT_BOT_URL}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    const body = await r.json();
+    return {
+      events: toStreamEvents(body),
+      data: body.output,
+      status: "completed",
+    };
+  },
+});
+```
+</CodeGroup>
+
+`toStreamEvents` is a small mapping function you write once — it converts "what your service said and which tools it called" into `StreamEvent[]`. That is the entirety of a remote agent author's work.
+
+### `defineSandboxAgent` — coding agents in isolation
+
+Use `defineSandboxAgent` when the subject under test is a coding agent CLI (Claude Code, Codex, bub) that needs to run inside an isolated filesystem. The "connection" is not a wire protocol; it is: spawn the CLI inside the sandbox, pass it the prompt, let it work on the sandbox filesystem, read back the transcript.
+
+```ts
+// agents/claude-code.ts (built-in)
+import { defineSandboxAgent, shared, requireEnv } from "fasteval";
+
+const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
+
+export default defineSandboxAgent({
+  name: "claude-code",
+  async send(input, ctx) {
+    const sb = ctx.sandbox!;
+    await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"]);
+
+    const args = ["--print", "--dangerously-skip-permissions"];
+    if (ctx.model) args.push("--model", ctx.model);
+    if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
+    if (!ctx.session.isNew && ctx.session.id) args.push("--resume", ctx.session.id);
+    args.push(input.text);
+
+    const res = await sb.runCommand("claude", args, { env: auth() });
+    const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
+    ctx.session.id = shared.sessionIdFromClaudeTranscript(raw);
+    return {
+      events: parseClaudeCode(raw),  // transcript JSONL → standard StreamEvent[]
+      status: res.exitCode === 0 ? "completed" : "failed",
+    };
+  },
+});
+```
+
+All coding agent adapters share the same structural skeleton — the parts that differ between `claude-code` and `codex` are just five points: which CLI to install, how to authenticate, how to compose the invocation, how the model flag is passed, and where to read the transcript.
+
+## Built-in agents
+
+fasteval ships built-in adapters for common coding agents. You can use them directly without writing any adapter code:
+
+| Agent name | CLI | Auth env var |
+|---|---|---|
+| `claude-code` | `@anthropic-ai/claude-code` | `ANTHROPIC_API_KEY` |
+| `codex` | `@openai/codex` | via `codex login` |
+| `bub` | bub CLI | bub credentials |
+
+Use them from the CLI: `--agent claude-code`, `--agent codex`, `--agent bub`.
+
+## Agent × Sandbox orthogonality
+
+The `--agent` and `--sandbox` flags are fully independent:
+
+```shell
+--agent <name>       selects which system under test to connect to
+--sandbox <backend>  selects where sandbox agents run (docker / vercel / third-party)
+```
+
+Any sandbox agent works with any sandbox backend. `claude-code` can run in Docker or Vercel; the same Docker sandbox can host `claude-code` or `bub`. The runner prepares a `Sandbox` handle and passes it through `ctx.sandbox` — agent and sandbox interact only through that interface. Remote agents (`defineAgent`) ignore `--sandbox` entirely.
+
+## Configuration: what belongs where
+
+When writing an adapter, a common question is "where does this setting live?" The rule is fixed:
+
+| Setting | Owner | How to access |
+|---|---|---|
+| Auth credentials (API key, token, base URL) | **adapter-local** | read from `process.env` inside the adapter definition; never through `ctx` |
+| CLI details (package name, arg shape, transcript location) | **adapter-local** | hard-coded inside `send` |
+| **Model** | **experiment** | `ctx.model` (omit → agent's native default) |
+| **Feature flags** (webResearch, which skill to inject, effort level…) | **experiment** | `ctx.flags.*` |
+
+The one-line rule: **the adapter only configures "how to reach me"; the experiment configures "which model and which switches."** This lets the same adapter be reused across experiments with different models and flags, without any changes to the adapter itself.
+
+## Registering your own agent
+
+Add your adapter to `fasteval.config.ts` and it becomes available to all evals and to the `--agent` flag:
+
+```ts
+// fasteval.config.ts
+import { defineConfig } from "fasteval";
+import myAgent from "./agents/my-agent.js";
+import supportBot from "./agents/support-bot.js";
+
+export default defineConfig({
+  agents: [myAgent, supportBot],   // register your adapters
+  defaultAgent: "my-agent",        // used when --agent is omitted
+});
+```
+
+Built-in coding agents (`claude-code`, `codex`, `bub`) are available without registration — use them directly with `--agent <name>`.
+
+## Writing a new adapter: checklist
+
+<CardGroup cols={2}>
+  <Card title="Remote / in-process agent" icon="plug">
+    Implement `defineAgent` with a `send` that calls your code or service, maps the response to `StreamEvent[]`, and declares the capabilities your agent supports. That is everything.
+  </Card>
+  <Card title="Sandbox agent" icon="box">
+    Implement `defineSandboxAgent` with the five per-agent differences (install CLI, auth, compose invocation, model flag, read transcript), reuse `shared` utilities for workspace prep and diff capture, and write a transcript parser (`o11y/parsers/<name>.ts`) that converts raw JSONL to `StreamEvent[]`.
+  </Card>
+</CardGroup>
+
+Neither kind of adapter touches the core. The adapter boundary is the design's structural load-bearer: adding a new agent never requires modifying fasteval itself.
+
+## Related pages
+
+- [Scoring](/concepts/scoring) — the full assertion vocabulary that runs against the standard event stream.
+- [Overview](/concepts/overview) — the four-layer architecture and how agents fit in.
+- [Evals](/concepts/evals) — how the `agent` field in `defineEval` connects to an adapter.

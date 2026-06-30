@@ -1,0 +1,141 @@
+---
+title: "fasteval architecture: evals, agents, and sandboxes"
+sidebarTitle: "Overview"
+description: "Understand how fasteval's core, agent adapters, and sandbox backends fit together to evaluate any AI agent with a unified TypeScript API."
+---
+
+fasteval is organized around three concerns that stay permanently separated: **what to test** (your `evals/` directory), **how to run and score it** (the fasteval core), and **how to reach the thing being tested** (the agent adapter and sandbox). Understanding where each boundary falls makes it much easier to write evals, build adapters, and interpret results — so this page walks the full architecture before you write a single line of eval code.
+
+## The four-layer architecture
+
+```
+   Your evals/ directory            fasteval core              Connect to AI (self-authored adapters)
+   ----------------------           --------------             ------------------------------------
+   weather.eval.ts  --discover-->   Runner  --send-->  Agent   ┬─ in-process adapter  (your agent)
+   sql.eval.ts                        │                        ├─ remote adapter      (your service)
+   fixtures/button/ --fixture-->      │                        └─ sandbox adapter ─── Sandbox
+     PROMPT.md                        │                           (claude-code          (docker /
+     EVAL.ts                          ▼                            codex / bub …)        third-party)
+                                  Scorers ── Reporters ── .fasteval/<run>/
+                                  (expect / scoped /     (summary.json / event stream /
+                                   judge / tests)         transcript / diff)
+```
+
+Each layer owns a distinct slice of the problem. The **core never reaches through the adapter boundary** — it dispatches against interfaces, and the adapter decides how to fulfill them. That wall is the structural load-bearer of the entire design.
+
+## What the core owns
+
+The fasteval core is everything that looks the same regardless of which AI you're testing:
+
+<CardGroup cols={2}>
+  <Card title="Eval discovery" icon="magnifying-glass">
+    Scans your `evals/` directory for `*.eval.ts` files and fixture directories, derives each eval's ID from its file path, and builds the run queue.
+  </Card>
+  <Card title="Concurrency scheduling" icon="timeline">
+    Dispatches evals up to `maxConcurrency` at a time, respects `timeoutMs`, and manages `earlyExit` across retries of the same task.
+  </Card>
+  <Card title="Assertion collection & scoring" icon="chart-bar">
+    Gathers every assertion registered by `t.check`, `t.require`, scoped assertions, and judge calls, then folds them into a single verdict per eval.
+  </Card>
+  <Card title="Caching" icon="database">
+    Fingerprints each eval. If the eval, its inputs, and the agent haven't changed since the last run, the cached result is returned and the eval is skipped.
+  </Card>
+  <Card title="Reporting" icon="file-lines">
+    Streams live output to the console and hands off to configured reporters (JUnit, JSON, custom) once a run completes.
+  </Card>
+  <Card title="Artifact persistence" icon="folder-open">
+    Writes the full run record to `.fasteval/<run>/` — `summary.json`, per-eval results, event streams, transcripts, diffs, and test output.
+  </Card>
+</CardGroup>
+
+## What the Agent / Adapter boundary means
+
+<Note>
+fasteval **does not define a universal agent protocol**. There is no `--url` flag, no shared wire format, and no assumption that your AI can speak a particular API shape.
+</Note>
+
+Every system under test — your own agent, a deployed HTTP service, Claude Code, Codex, bub — is connected through a **self-authored adapter**. Two terms name two sides of the same concept:
+
+- **Agent** is the abstraction. From the core's perspective an agent is a named object with a set of capabilities and a single `send` method that accepts a `TurnInput` and returns a `Turn`. The runner only ever calls this interface.
+- **Adapter** is the concrete implementation you write (or use from fasteval's built-ins). It knows how to authenticate, how to call your service, and — critically — how to map whatever your AI returns into the standard event stream the core expects.
+
+You select an agent by name with `--agent <name>`, not by URL. The URL (or API key, or CLI invocation) is the adapter's private configuration, invisible to the core and to your evals.
+
+### Why there is no `--url` flag
+
+Some eval frameworks define a protocol and let you point at any compatible endpoint with `--url`. fasteval explicitly rejects this model: there is no single protocol that all AI agents speak. Rather than forcing you to wrap your agent in a compatibility shim, fasteval puts the adaptation work where it belongs — inside the adapter — and keeps the core protocol-agnostic. The result is that any AI, any transport, and any framework can be evaluated with the same `defineEval` + assertion vocabulary.
+
+## What the Sandbox owns
+
+A **sandbox** is where a sandbox-type agent runs — the isolated execution environment that provides the filesystem, the network policy, and the process boundary. Sandboxes are completely separate from agents:
+
+<Tabs>
+  <Tab title="Docker">
+    The default local sandbox. fasteval spins up a container, uploads the workspace fixture, runs the agent CLI inside it, then reads back the transcript and diff. No cloud credentials required beyond the agent's own API key.
+  </Tab>
+  <Tab title="Vercel Sandbox">
+    A cloud-hosted sandbox backend. Useful when you want to avoid managing Docker locally or run evals in a serverless CI environment. Requires a Vercel token.
+  </Tab>
+  <Tab title="Third-party">
+    Any backend that implements the `Sandbox` interface can be plugged in. The agent adapter receives a `ctx.sandbox` handle and interacts with it through that interface, so swapping sandbox backends requires no changes to the agent or your evals.
+  </Tab>
+</Tabs>
+
+Remote agents (those using `defineAgent`) ignore `--sandbox` entirely — they have no need for an isolated workspace. Only sandbox agents (those using `defineSandboxAgent`) require a sandbox backend.
+
+The runner selects a sandbox with `--sandbox <backend>` and passes a prepared `Sandbox` handle through `ctx.sandbox`. The agent and sandbox are **orthogonal**: `claude-code` can run in Docker or Vercel; the same Docker sandbox can run `claude-code` or `bub`. Neither side needs to know anything about the other.
+
+## Key terminology
+
+<AccordionGroup>
+  <Accordion title="Eval">
+    A single test case: one description, one agent reference, and one `async test(t)` function. Evals are the unit of discovery, scheduling, scoring, and reporting. Each eval produces exactly one verdict (or a pass-rate summary when `runs > 1`).
+  </Accordion>
+  <Accordion title="Agent">
+    The abstraction for a system under test. An agent has a name, a set of capability flags, and a `send` method. The runner only sees this interface.
+  </Accordion>
+  <Accordion title="Adapter">
+    The concrete implementation of an agent. An adapter knows how to connect to a specific AI — your service, Claude Code, a local function — and normalizes its output into the standard event stream.
+  </Accordion>
+  <Accordion title="Sandbox">
+    The isolated execution environment for sandbox-type agents: a Docker container, Vercel Sandbox, or other backend that provides a filesystem and process boundary.
+  </Accordion>
+  <Accordion title="Turn">
+    The result of one `t.send(...)` call: a standard event stream, an optional structured-output field (`data`), a `status`, and optional token usage. All scoped assertions read from `Turn.events`.
+  </Accordion>
+  <Accordion title="Artifact">
+    Any file written to `.fasteval/<run>/` after a run: `summary.json`, per-eval results, event streams, transcripts, generated-file diffs, and test output. Artifacts are the source of truth for debugging and regression analysis.
+  </Accordion>
+  <Accordion title="Experiment">
+    A named configuration matrix — a combination of evals, agent, sandbox, model, feature flags, run count, and budget — that produces a comparable, replayable run. Experiments are how you compare agent A vs agent B, or model X vs model Y, over the same eval suite.
+  </Accordion>
+</AccordionGroup>
+
+## How the parts connect end-to-end
+
+<Steps>
+  <Step title="Discovery">
+    The runner scans `evals/` for `*.eval.ts` files and fixture directories (`PROMPT.md` present). Each file path becomes an eval ID — `evals/weather/brooklyn.eval.ts` becomes `weather/brooklyn`.
+  </Step>
+  <Step title="Scheduling">
+    Evals are dispatched up to `maxConcurrency` at a time. Fingerprint caching skips evals that haven't changed since their last passing run.
+  </Step>
+  <Step title="Agent send">
+    For each eval, the runner calls `agent.send(input, ctx)`. The adapter drives the subject under test and returns a `Turn` containing the standard event stream.
+  </Step>
+  <Step title="Scoring">
+    The core evaluates all registered assertions against the `Turn`. Gate assertions that fail mark the eval `failed`. Soft assertions below their threshold mark it `scored`.
+  </Step>
+  <Step title="Verdict">
+    One verdict per eval: `passed`, `failed`, `scored`, or `skipped`. When `runs > 1`, the summary is a pass-rate and average latency.
+  </Step>
+  <Step title="Reporting & artifacts">
+    Results stream to the console in real time. Once complete, reporters write structured output and `.fasteval/<run>/` is populated with the full artifact set.
+  </Step>
+</Steps>
+
+## Related pages
+
+- [Evals](/concepts/evals) — what an eval is and how the lifecycle works in detail.
+- [Agents & Adapters](/concepts/agents-adapters) — how to write and register an adapter.
+- [Scoring](/concepts/scoring) — the full assertion vocabulary and verdict rules.

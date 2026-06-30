@@ -1,0 +1,478 @@
+---
+title: "defineAgent and defineSandboxAgent: adapter reference"
+sidebarTitle: "defineAgent"
+description: "Reference for defineAgent and defineSandboxAgent. Covers AgentContext, Sandbox interface, StreamEvent types, and shared sandbox helpers."
+---
+
+Every agent in fasteval is an **adapter** — a piece of code you write that knows how to drive a specific backend and translate its output into a standard event stream. The runner knows nothing about your agent's wire protocol, CLI flags, or authentication; it only calls `agent.send(input, ctx)` and expects back a `Turn`. This page covers the two adapter factories: `defineAgent` for remote and in-process agents, and `defineSandboxAgent` for coding agents that run inside an isolated sandbox.
+
+---
+
+## defineAgent
+
+Use `defineAgent` for any agent you can drive in-process or over HTTP. The `send` function is your responsibility: call your code, fire a `fetch`, stream from a WebSocket — whatever your backend requires. Map the result to the standard event stream and return a `Turn`.
+
+```ts
+import { defineAgent } from "fasteval";
+```
+
+### Options
+
+<ParamField body="name" type="string" required>
+  A unique identifier for this agent. Referenced by name in `defineEval({ agent: "..." })`,
+  `defineConfig({ defaultAgent: "..." })`, and the `--agent` CLI flag.
+
+  ```ts
+  name: "my-agent",
+  ```
+</ParamField>
+
+<ParamField body="capabilities" type="AgentCapabilities">
+  Declares what the agent can do. The runner uses these flags to decide which
+  methods appear on the eval's `t` context. Omitting a capability hides the
+  corresponding `t` methods at the TypeScript type level, surfacing
+  misconfiguration at compile time rather than runtime.
+
+  ```ts
+  capabilities: {
+    conversation: true,       // allows multi-turn t.send and t.reply
+    toolObservability: true,  // enables t.calledTool, t.event, etc.
+  },
+  ```
+
+  <ParamField body="conversation" type="boolean">
+    The agent supports multi-turn sessions. Enables `t.reply` and `t.newSession()`.
+  </ParamField>
+
+  <ParamField body="toolObservability" type="boolean">
+    The agent produces `action.*` and `subagent.*` events. Enables
+    `t.calledTool`, `t.notCalledTool`, `t.toolOrder`, `t.usedNoTools`,
+    `t.maxToolCalls`, `t.loadedSkill`, `t.calledSubagent`, `t.noFailedActions`,
+    `t.event`, `t.notEvent`, `t.eventOrder`, and `t.eventsSatisfy`.
+  </ParamField>
+
+  <ParamField body="workspace" type="boolean">
+    The agent works on a file system. Enables `t.diff`, `t.fileChanged`,
+    `t.fileDeleted`, `t.testsPassed`, and `t.scriptPassed`. This flag is
+    automatically set for `defineSandboxAgent` adapters.
+  </ParamField>
+</ParamField>
+
+<ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
+  The core function that drives the agent. Called once per `t.send()` invocation.
+  See the `TurnInput` and `AgentContext` sections below for parameter details.
+  Must return a `Turn` (see the Turn section).
+
+  ```ts
+  async send(input, ctx) {
+    const res = await myAgent.handle(input.text, { signal: ctx.signal });
+    return {
+      events: toStreamEvents(res),
+      data: res.json,
+      status: "completed",
+    };
+  },
+  ```
+</ParamField>
+
+### The `input` parameter
+
+<ResponseField name="text" type="string">
+  The user message string for this turn. This is the value passed to `t.send(text)`.
+</ResponseField>
+
+### The `ctx` parameter (AgentContext)
+
+<ResponseField name="signal" type="AbortSignal">
+  An `AbortSignal` tied to the eval's timeout. Pass it to any `fetch` calls or
+  long-running async work so they cancel cleanly when the eval times out or is
+  aborted by early-exit logic.
+</ResponseField>
+
+<ResponseField name="model" type="string | undefined">
+  The model tier string requested by the experiment (e.g. `"claude-opus-4-8"`).
+  When present, pass it to your backend's model selection parameter. When
+  absent, let your backend use its own default.
+</ResponseField>
+
+<ResponseField name="flags" type="Readonly<Record<string, unknown>>">
+  Feature flags set by the experiment and transparently forwarded to the agent.
+  Read these to toggle behaviors (e.g. `ctx.flags.webResearch`). The same
+  flags are available on `t.flags` in the eval's `test` function.
+</ResponseField>
+
+<ResponseField name="session" type="{ id?: string; isNew: boolean }">
+  Session state for multi-turn conversations. `id` is an opaque string you
+  assign after the first turn so subsequent turns can resume the session.
+  `isNew` is `true` on the first turn or after the eval calls `t.newSession()`.
+
+  ```ts
+  if (!ctx.session.isNew && ctx.session.id) {
+    // resume existing session
+  } else {
+    // start a fresh session
+  }
+  ctx.session.id = responseBody.sessionId; // store for next turn
+  ```
+</ResponseField>
+
+<ResponseField name="log" type="(msg: string) => void">
+  Writes a diagnostic message to the eval's log. Useful for debugging adapter
+  internals without polluting the test output.
+</ResponseField>
+
+### The Turn return type
+
+Your `send` function must return an object satisfying the `Turn` interface.
+
+<ResponseField name="events" type="StreamEvent[]" required>
+  The normalized standard event stream for this turn. This is the core product
+  of your adapter — every scope-level assertion in the eval reads from it. See
+  the StreamEvent section below for all event types.
+</ResponseField>
+
+<ResponseField name="data" type="unknown | undefined">
+  Structured (non-text) output from the agent. Used by `turn.outputEquals()`
+  and `turn.outputMatches()`. Set this when your agent returns a parsed object
+  alongside its text response.
+</ResponseField>
+
+<ResponseField name="status" type='"completed" | "failed" | "waiting"'>
+  The outcome of this turn:
+  - `"completed"` — the agent finished normally
+  - `"failed"` — the agent encountered an error
+  - `"waiting"` — the agent stopped at a human-in-the-loop (`input.requested`) prompt
+</ResponseField>
+
+<ResponseField name="usage" type="Usage | undefined">
+  Token counts for this turn. Provide these when your backend exposes them so
+  fasteval can report costs and power `t.maxTokens()` / `t.maxCost()` assertions.
+
+  - `inputTokens: number`
+  - `outputTokens: number`
+  - `cacheReadTokens?: number`
+</ResponseField>
+
+### Complete example: in-process agent
+
+```ts
+// agents/my-agent.ts
+import { defineAgent } from "fasteval";
+import { classifyIntent } from "../src/agent.js";
+
+export default defineAgent({
+  name: "classify",
+  capabilities: {},
+  async send(input, ctx) {
+    const result = await classifyIntent(input.text);
+    return {
+      events: [
+        { type: "message", role: "assistant", text: JSON.stringify(result) },
+      ],
+      data: result,
+      status: "completed",
+    };
+  },
+});
+```
+
+### Complete example: remote HTTP agent
+
+```ts
+// agents/support-bot.ts
+import { defineAgent } from "fasteval";
+
+export default defineAgent({
+  name: "support-bot",
+  capabilities: { conversation: true, toolObservability: true },
+  async send(input, ctx) {
+    const r = await fetch(`${process.env.SUPPORT_BOT_URL}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    const body = await r.json();
+    return {
+      events: toStreamEvents(body),   // your mapping function
+      data: body.output,
+      status: "completed",
+    };
+  },
+});
+```
+
+<Note>
+  Authentication (API keys, base URLs, tokens) belongs **inside** the adapter —
+  read it from environment variables in the `send` closure. fasteval never sees
+  it and never passes it via `ctx`. This keeps credential scope tight and lets
+  the same adapter be used across environments simply by changing env vars.
+</Note>
+
+---
+
+## defineSandboxAgent
+
+Use `defineSandboxAgent` for coding agents that run as a CLI inside an isolated sandbox (Docker container or cloud VM). The runner provisions the sandbox and passes it via `ctx.sandbox`. Your `send` function installs the CLI, runs the agent with the task prompt, reads back the transcript, and parses it into the standard event stream.
+
+```ts
+import { defineSandboxAgent, shared } from "fasteval";
+```
+
+`defineSandboxAgent` accepts exactly the same options as `defineAgent` (see above), plus `ctx.sandbox` is always populated.
+
+### The `ctx.sandbox` field (Sandbox interface)
+
+<ResponseField name="runCommand(cmd, args?, opts?)" type="(cmd: string, args?: string[], opts?: RunOpts) => Promise<CommandResult>">
+  Runs a single command inside the sandbox. Returns `{ stdout, stderr, exitCode }`.
+
+  ```ts
+  const res = await ctx.sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });
+  ```
+
+  **`opts` fields:**
+  - `env?: Record<string, string>` — extra environment variables merged into the command's environment
+  - `cwd?: string` — working directory override for this command
+  - `root?: boolean` — run as root (`false` by default). Use for privileged setup steps like installing system packages.
+
+  ```ts
+  // privileged: install a system package
+  await ctx.sandbox.runCommand("apt-get", ["install", "-y", "openjdk-17-jdk"], { root: true });
+
+  // non-privileged (default): run npm
+  await ctx.sandbox.runCommand("npm", ["install"]);
+  ```
+</ResponseField>
+
+<ResponseField name="runShell(script, opts?)" type="(script: string, opts?) => Promise<CommandResult>">
+  Runs a multi-line shell script inside the sandbox. Accepts the same `opts` as
+  `runCommand`. Useful for complex setup sequences.
+
+  ```ts
+  await ctx.sandbox.runShell(`
+    git config user.email "bot@example.com"
+    git config user.name "Bot"
+  `);
+  ```
+</ResponseField>
+
+<ResponseField name="readFile(path)" type="(path: string) => Promise<string>">
+  Reads a file from the sandbox filesystem and returns its contents as a string.
+</ResponseField>
+
+<ResponseField name="writeFiles(files)" type="(files: Record<string, string>) => Promise<void>">
+  Writes one or more files into the sandbox. Keys are paths, values are file
+  contents.
+
+  ```ts
+  await ctx.sandbox.writeFiles({
+    "/workspace/.env": "API_KEY=test",
+  });
+  ```
+</ResponseField>
+
+<ResponseField name="uploadFiles(files)" type="(files: SandboxFile[]) => Promise<void>">
+  Uploads a batch of files (including binary) to the sandbox. Used internally
+  by `shared.prepareWorkspace` to upload workspace fixture files.
+</ResponseField>
+
+<ResponseField name="getWorkingDirectory()" type="() => string">
+  Returns the current working directory path inside the sandbox.
+</ResponseField>
+
+<ResponseField name="setWorkingDirectory(path)" type="(path: string) => void">
+  Sets the default working directory for subsequent commands.
+</ResponseField>
+
+<ResponseField name="stop()" type="() => Promise<void>">
+  Tears down and destroys the sandbox instance. Called automatically by the
+  runner after the eval completes. You generally do not need to call this
+  yourself.
+</ResponseField>
+
+### shared helpers
+
+The `shared` object from `fasteval` provides utilities that are common across all sandbox agent adapters, ensuring that workspace preparation, diff collection, validation, and observability injection work consistently regardless of which agent CLI you're wrapping.
+
+<ResponseField name="shared.prepareWorkspace(sandbox, fixture)" type="function">
+  Uploads workspace files to the sandbox (hiding `EVAL.ts` and other test files
+  to prevent the agent from seeing the answer), then runs `git init && git commit`
+  to establish a baseline for later diffing.
+</ResponseField>
+
+<ResponseField name="shared.captureLatestJsonl(sandbox, dir)" type="function">
+  Locates and reads the most recently modified `.jsonl` transcript file under
+  `dir`. Used by adapters like `claude-code` that write transcripts to a
+  well-known directory.
+
+  ```ts
+  const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
+  ```
+</ResponseField>
+
+<ResponseField name="shared.runValidation(sandbox, scripts, mode)" type="function">
+  Uploads the test files (e.g. `EVAL.ts`) that were hidden during workspace
+  preparation, then runs the Vitest suite and/or npm scripts to validate the
+  agent's output.
+</ResponseField>
+
+<ResponseField name="shared.injectO11yContext(sandbox, events)" type="function">
+  Derives observability data from the standard event stream and writes it to
+  `__fasteval__/results.json` inside the sandbox. This makes agent behavior
+  visible to assertions in `EVAL.ts`.
+
+  ```ts
+  // In EVAL.ts — read what the agent did:
+  const o11y = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8")).o11y;
+  expect(o11y.shellCommands.map(c => c.command)).not.toContain("rm -rf /");
+  ```
+</ResponseField>
+
+### Complete example: claude-code adapter
+
+```ts
+// agents/claude-code.ts
+import { defineSandboxAgent, shared, requireEnv } from "fasteval";
+
+const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
+
+export default defineSandboxAgent({
+  name: "claude-code",
+  async send(input, ctx) {
+    const sb = ctx.sandbox!;
+
+    // Install the CLI (privileged — npm global install)
+    await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"], {
+      root: true,
+    });
+
+    // Build the argument list
+    const args = ["--print", "--dangerously-skip-permissions"];
+    if (ctx.model) args.push("--model", ctx.model);
+    if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
+    if (!ctx.session.isNew && ctx.session.id) args.push("--resume", ctx.session.id);
+    args.push(input.text);
+
+    const res = await sb.runCommand("claude", args, { env: auth() });
+
+    // Capture and parse the transcript
+    const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
+    ctx.session.id = shared.sessionIdFromClaudeTranscript(raw);
+
+    return {
+      events: parseClaudeCode(raw),  // your transcript → StreamEvent[] parser
+      status: res.exitCode === 0 ? "completed" : "failed",
+    };
+  },
+});
+```
+
+---
+
+## StreamEvent union type
+
+Every adapter must produce `StreamEvent[]`. This normalized stream is what all scope-level assertions in `test(t)` read from. If your backend uses a different representation, map it to these types in your `send` function.
+
+```ts
+type StreamEvent =
+  | { type: "message"; role: "assistant" | "user"; text: string }
+  | { type: "action.called"; callId: string; name: string; input: JsonValue }
+  | { type: "action.result"; callId: string; output?: JsonValue;
+      status: "completed" | "failed" | "rejected" }
+  | { type: "subagent.called"; callId: string; name: string; remoteUrl?: string }
+  | { type: "subagent.completed"; callId: string; output?: JsonValue;
+      status: "completed" | "failed" }
+  | { type: "input.requested"; request: InputRequest }
+  | { type: "thinking"; text: string }
+  | { type: "error"; message: string };
+```
+
+<Accordion title="Event type details">
+
+| Event type | Description |
+|---|---|
+| `message` | A text message from the assistant or user. `t.reply` is derived from all `assistant` messages in the stream. |
+| `action.called` | A tool, skill, or action was invoked. `callId` links to the corresponding `action.result`. |
+| `action.result` | The result of a tool call. Paired with `action.called` by `callId`. |
+| `subagent.called` | The agent delegated to a sub-agent. |
+| `subagent.completed` | A sub-agent delegation finished. |
+| `input.requested` | The agent paused waiting for human input (HITL). Causes `status: "waiting"` on the Turn. |
+| `thinking` | Reasoning text from a chain-of-thought model. Not counted as a reply message. |
+| `error` | An error emitted by the agent during execution. `t.notEvent("error")` asserts none occurred. |
+
+</Accordion>
+
+<Note>
+  Skill loading (`load_skill`) is represented as an `action.called` event with
+  `name: "load_skill"`. The `t.loadedSkill(name)` assertion is syntactic sugar
+  for `t.calledTool("load_skill", { input: { skill: name } })` — no separate
+  event type is needed.
+</Note>
+
+---
+
+## Registering agents in defineConfig
+
+Once you've written your adapters, register them in `fasteval.config.ts`:
+
+```ts
+// fasteval.config.ts
+import { defineConfig } from "fasteval";
+import myAgent from "./agents/my-agent.js";
+import supportBot from "./agents/support-bot.js";
+
+export default defineConfig({
+  agents: [myAgent, supportBot],
+  defaultAgent: "my-agent",   // used when --agent is not specified
+});
+```
+
+<ParamField body="agents" type="AgentAdapter[]">
+  Array of agent adapter instances created with `defineAgent` or
+  `defineSandboxAgent`. Each adapter's `name` must be unique.
+</ParamField>
+
+<ParamField body="defaultAgent" type="string">
+  The `name` of the agent to use when neither the eval's `agent` field nor the
+  `--agent` CLI flag specifies one.
+</ParamField>
+
+### Built-in agents
+
+The following coding agent adapters are built into fasteval and require no registration. Use them directly with `--agent`:
+
+<CardGroup cols={3}>
+  <Card title="claude-code" icon="terminal">
+    Anthropic Claude Code CLI. Requires `ANTHROPIC_API_KEY`.
+    Uses `claude --print --dangerously-skip-permissions`.
+  </Card>
+  <Card title="codex" icon="terminal">
+    OpenAI Codex CLI. Requires `codex login` or API key setup.
+    Uses `codex exec --json`.
+  </Card>
+  <Card title="bub" icon="terminal">
+    Built-in bub coding agent. Same adapter shape as `claude-code` — use as
+    a reference when writing your own sandbox adapter.
+  </Card>
+</CardGroup>
+
+```shell
+npx fasteval --agent claude-code --sandbox docker evals/fixtures/button
+npx fasteval --agent codex --sandbox docker evals/fixtures/button
+```
+
+---
+
+## ctx vs t: two names, same data
+
+The `ctx` object in your adapter's `send` function and the `t` object in your eval's `test` function share the same underlying data — `t` is the runner's high-level view built on top of `ctx`.
+
+| Concept | `ctx` (agent side) | `t` (eval side) |
+|---|---|---|
+| Feature flags | `ctx.flags` | `t.flags` |
+| Model | `ctx.model` | `t.model` |
+| Abort signal | `ctx.signal` | `t.signal` |
+| Logging | `ctx.log()` | `t.log()` |
+| Session | `ctx.session.id` / `isNew` | `t.newSession()` |
+| Sandbox | `ctx.sandbox` (raw `Sandbox` handle) | `t.diff`, `t.fileChanged`, etc. (high-level view) |
+
+Authentication details, CLI flags, and transcript locations are **agent-local** — they live inside `send` and are never exposed via `ctx` or `t`.

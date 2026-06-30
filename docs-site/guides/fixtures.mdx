@@ -1,0 +1,192 @@
+---
+title: "Sandbox fixtures: evaluate coding agents with tasks"
+sidebarTitle: "Fixtures"
+description: "A fixture is a directory with PROMPT.md and EVAL.ts that fasteval uses to run a coding agent in isolation and validate its output with Vitest tests."
+---
+
+When you evaluate a coding agent — one that reads files, writes code, and runs shell commands — you need more than a chat assertion. You need to give the agent a real workspace, let it do its work in isolation, and then inspect the result. fasteval handles this through **sandbox fixtures**: directories on disk that describe the task, provide starting files, and contain hidden validation tests. The framework discovers them automatically, runs the agent in a fresh sandbox, and grades the output.
+
+## What a fixture is
+
+A fixture is a directory that contains at least two files: `PROMPT.md` and `EVAL.ts`. Everything else in the directory becomes the agent's starting workspace.
+
+```
+evals/fixtures/create-button/
+├─ PROMPT.md          # The task prompt sent to the agent (required)
+├─ EVAL.ts            # Validation tests, hidden from the agent (required)
+├─ package.json       # Must include "type": "module"
+├─ src/               # Any starting workspace files the agent can see
+└─ tsconfig.json
+```
+
+fasteval discovers fixtures by looking for any directory containing a `PROMPT.md`. You don't need to write a `.eval.ts` wrapper or register the fixture anywhere. Nested directories work fine: `fixtures/api/auth/` is discovered and gets the ID `fixtures/api/auth`.
+
+## PROMPT.md
+
+`PROMPT.md` is the task description sent to the coding agent. Write it exactly as you'd write a prompt — be specific about what the agent should produce, which files to touch, and any constraints to respect.
+
+```md
+<!-- evals/fixtures/button/PROMPT.md -->
+Using the project's existing style system, export a Button component from
+src/components/Button.tsx that accepts `label` and `onClick` props and
+implements a hover state.
+```
+
+The agent receives the full contents of `PROMPT.md` as its initial message. Keep it self-contained so the task is unambiguous without extra context.
+
+## EVAL.ts
+
+`EVAL.ts` contains your validation logic written in [Vitest](https://vitest.dev/) style. Each `test()` block becomes a **gate assertion** in the eval result: if the test fails, the eval fails.
+
+```ts
+// evals/fixtures/button/EVAL.ts
+import { test, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+
+test("Button file exists", () => {
+  expect(existsSync("src/components/Button.tsx")).toBe(true);
+});
+
+test("Accepts label and onClick props", () => {
+  const src = readFileSync("src/components/Button.tsx", "utf-8");
+  expect(src).toContain("label");
+  expect(src).toContain("onClick");
+});
+```
+
+<Warning>
+  `EVAL.ts` is **hidden from the agent** during execution. fasteval only uploads it to the sandbox after the agent has finished running. This prevents the agent from reading the expected answers and writing code that trivially passes without solving the actual task.
+</Warning>
+
+## Workspace files
+
+Every file in the fixture directory other than `EVAL.ts` is part of the agent's visible workspace. The agent can read, edit, and delete them freely. Common things to include:
+
+- A `package.json` with `"type": "module"` and any project dependencies
+- Starter source files the agent should build on or refactor
+- A `tsconfig.json` if the project uses TypeScript
+- Any configuration files the agent might need (`eslint.config.js`, `.prettierrc`, etc.)
+
+<Note>
+  `package.json` must include `"type": "module"` for fasteval's module loading to work correctly inside the sandbox.
+</Note>
+
+## Auto-discovery
+
+fasteval scans your eval directory for any subdirectory that contains a `PROMPT.md` file. There is no registration step. The fixture's ID is derived from its path relative to the eval root, the same way `.eval.ts` IDs are derived:
+
+| Fixture path | Eval ID |
+|---|---|
+| `evals/fixtures/button/` | `fixtures/button` |
+| `evals/fixtures/api/auth/` | `fixtures/api/auth` |
+
+You can filter to a specific fixture using its ID prefix: `npx fasteval fixtures/button`.
+
+## Running a fixture
+
+<Steps>
+  <Step title="Set your API key">
+    Export the API key for the coding agent you want to evaluate.
+
+    ```bash
+    export ANTHROPIC_API_KEY=sk-ant-...
+    ```
+  </Step>
+
+  <Step title="Run with a sandbox backend">
+    Pass `--agent` to select the coding agent and `--sandbox` to choose the isolation backend.
+
+    ```bash
+    npx fasteval --agent claude-code --sandbox docker fixtures/button
+    ```
+
+    fasteval will start a fresh Docker container, upload the workspace files (excluding `EVAL.ts`), run the agent, upload `EVAL.ts`, execute the Vitest tests, collect the diff, and tear down the container.
+  </Step>
+
+  <Step title="Run multiple times for a pass rate">
+    Use `--runs` to measure reliability. Add `--early-exit` to stop as soon as one run passes.
+
+    ```bash
+    npx fasteval --agent claude-code --runs 10 --early-exit fixtures/button
+    ```
+  </Step>
+</Steps>
+
+## Asserting agent behavior with o11y
+
+Beyond asserting file contents, you can assert **what the agent did** — which shell commands it ran, which tools it called, and how it navigated the task. After the agent finishes, fasteval injects an observability summary into the sandbox at `__fasteval__/results.json`. Your `EVAL.ts` can read this file.
+
+```ts
+import { test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+test("Used the scaffold command instead of writing files by hand", () => {
+  const o11y = JSON.parse(
+    readFileSync("__fasteval__/results.json", "utf-8")
+  ).o11y;
+  const cmds = o11y.shellCommands.map((c: { command: string }) => c.command);
+  expect(cmds.some((c) => c.includes("create-next-app"))).toBe(true);
+});
+
+test("Did not run a destructive command", () => {
+  const o11y = JSON.parse(
+    readFileSync("__fasteval__/results.json", "utf-8")
+  ).o11y;
+  expect(
+    o11y.shellCommands.map((c: { command: string }) => c.command)
+  ).not.toContain("rm -rf");
+});
+```
+
+The `o11y` object includes fields like `shellCommands` (with each command's text and exit code), tool calls, and subagent invocations. This lets you gate on _how_ the agent achieved its result, not only _what_ it produced.
+
+## The `defineAgentEval` alternative
+
+If you prefer to define fixture-style evals in code — for example, to share assertion logic across multiple tasks or to control the execution flow programmatically — use `defineAgentEval`:
+
+```ts
+// evals/refactor.eval.ts
+import { defineAgentEval } from "fasteval";
+import { includes } from "fasteval/expect";
+
+export default defineAgentEval({
+  description: "Rewrite callbacks to async/await",
+  prompt: "Rewrite all callbacks in src/legacy.js to async/await, preserving behavior.",
+  files: "./fixtures/legacy-callbacks",     // Starting workspace files
+  async test(t) {
+    await t.run();                          // Drive the agent
+    t.fileChanged("src/legacy.js");
+    t.check(t.diff.get("src/legacy.js"), includes("await"));
+    await t.script("test");                 // Run npm run test
+    t.testsPassed();
+  },
+});
+```
+
+<Accordion title="Fixture vs defineAgentEval — when to use which">
+
+| | Fixture (directory) | `defineAgentEval` |
+|---|---|---|
+| Discovery | Automatic | Requires a `.eval.ts` file |
+| Validation | Vitest tests in `EVAL.ts` | Programmatic assertions in `test(t)` |
+| Best for | Large suites, multi-language projects | Fine-grained control, shared assertion logic |
+| Assertion style | Vitest `expect` | fasteval `t.*` methods |
+
+Both approaches share the same scoring, running, and reporting pipeline.
+
+</Accordion>
+
+## Workspace assertions in `defineAgentEval`
+
+When you use `defineAgentEval`, the `t` context exposes workspace-level assertions you can call directly:
+
+```ts
+t.fileChanged("src/Button.tsx");        // Assert the file was modified
+t.fileDeleted("src/old.ts");            // Assert the file was removed
+t.testsPassed();                        // Assert EVAL.ts tests all pass
+t.scriptPassed("build");               // Assert npm run build exits 0
+t.diff.isEmpty();                       // Assert no repository files were changed
+t.notInDiff(/sk-[A-Za-z0-9]/);         // Assert no secrets appear in the diff
+```
+
+`t.diff` is a queryable object: `t.diff.get(path)` returns the post-change contents of a file, `t.diff.isEmpty()` checks for no changes, and `t.diff.matches(re)` / `t.notInDiff(re)` test the full diff text against a regular expression.

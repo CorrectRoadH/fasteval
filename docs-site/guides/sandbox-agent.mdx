@@ -1,0 +1,239 @@
+---
+title: "Sandbox agents: evaluate Claude Code, Codex, and bub"
+sidebarTitle: "Sandbox Agent"
+description: "Use fasteval's built-in agents (claude-code, codex, bub) or write a custom adapter to run a coding-agent CLI in an isolated Docker or cloud sandbox."
+---
+
+A sandbox agent spawns a coding-agent CLI inside an isolated environment — a Docker container or cloud micro-VM — gives it a workspace, lets it run freely, then reads back the transcript and validates the result. This is how you evaluate tools like Claude Code, Codex, and bub: they need a real filesystem to write code, execute builds, and call tools, so fasteval provides that filesystem in a throwaway container your host machine never sees.
+
+## Built-in sandbox agents
+
+fasteval ships three sandbox adapters out of the box. You select them with `--agent <name>`; no configuration file entry is required.
+
+<CardGroup cols={3}>
+  <Card title="claude-code" icon="code">
+    Runs Anthropic's Claude Code CLI. Requires `ANTHROPIC_API_KEY`.
+  </Card>
+  <Card title="codex" icon="terminal">
+    Runs OpenAI's Codex CLI. Requires `OPENAI_API_KEY`.
+  </Card>
+  <Card title="bub" icon="robot">
+    Runs the bub coding agent. Authentication follows the bub CLI conventions.
+  </Card>
+</CardGroup>
+
+## Running a built-in agent
+
+Pass `--agent` and `--sandbox` on the CLI. The sandbox flag tells fasteval where to spin up the isolated environment (see [Sandbox Backends](/guides/sandbox-backends) for the full list of options).
+
+```shell
+# Evaluate the button fixture with Claude Code in a local Docker container
+export ANTHROPIC_API_KEY=sk-ant-...
+npx fasteval --agent claude-code --sandbox docker fixtures/button
+
+# Run 10 times and stop as soon as one pass is recorded
+npx fasteval --agent claude-code --runs 10 --early-exit fixtures/button
+```
+
+<Note>
+  The `--sandbox docker` flag is optional if Docker is your default backend. Run `npx fasteval --agent codex fixtures/button` and fasteval will use Docker automatically unless a cloud token is detected in the environment.
+</Note>
+
+### Environment variables by agent
+
+| Agent | Required variable |
+|---|---|
+| `claude-code` | `ANTHROPIC_API_KEY` |
+| `codex` | `OPENAI_API_KEY` |
+| `bub` | *(follows bub CLI auth conventions)* |
+
+---
+
+## How a sandbox agent works
+
+The runner prepares the environment, then hands control to the adapter for exactly one segment. Everything else — uploading files, committing a git baseline, running validation, collecting diffs — is handled by fasteval's shared infrastructure so that results are consistent across all agents.
+
+```
+createSandbox(backend, timeout)
+  → uploadFiles(workspaceFiles)        # EVAL.ts is hidden from the agent
+  → git init && git commit             # baseline for later diff
+  → hooks.sandbox.setup?(sandbox, ctx) # optional user hook
+  → npm install                        # fixture dependencies
+  → adapter.send(input, ctx)           # ← the adapter's only segment
+  → uploadFiles(testFiles)             # EVAL.ts appears now
+  → runValidation()                    # run EVAL.ts + npm scripts
+  → collectGeneratedFiles()            # git diff HEAD
+  → hooks.sandbox.teardown?()/cleanup() # user teardown hook (runs even on failure)
+  → sandbox.stop()                     # destroy the environment
+```
+
+---
+
+## The `defineSandboxAgent` shape
+
+A sandbox adapter receives a `ctx` whose `ctx.sandbox` is the live `Sandbox` handle for the current isolated environment. Your `send` function uses that handle to install the CLI, authenticate, run the agent, and read back the transcript.
+
+```ts
+import { defineSandboxAgent } from "fasteval";
+
+defineSandboxAgent({
+  name: string;
+  async send(input: TurnInput, ctx: AgentContext): Promise<Turn>;
+  //                                 ↑ ctx.sandbox is the Sandbox handle
+});
+```
+
+The five things that differ between coding-agent adapters are:
+
+1. **Install the CLI** — e.g. `npm install -g @anthropic-ai/claude-code`
+2. **Authenticate** — read the API key from the environment and pass it to the command
+3. **Build the command** — construct the argument list, including the prompt
+4. **Pass the model flag** — forward `ctx.model` to the CLI if the experiment specifies one
+5. **Read and parse the transcript** — locate the native JSONL output and convert it to `StreamEvent[]`
+
+---
+
+## The built-in `claude-code` adapter (full example)
+
+The source for the built-in Claude Code adapter illustrates all five steps and how the shared helpers fit in:
+
+```ts
+// agents/claude-code.ts  (built-in; custom agents follow the same shape)
+import { defineSandboxAgent, shared, requireEnv } from "fasteval";
+
+// Authentication is the adapter's private business — never passed through ctx
+const auth = () => ({ ANTHROPIC_API_KEY: requireEnv("ANTHROPIC_API_KEY") });
+
+export default defineSandboxAgent({
+  name: "claude-code",
+  async send(input, ctx) {
+    const sb = ctx.sandbox!;
+
+    // Step 1: install the CLI
+    await sb.runCommand("npm", ["install", "-g", "@anthropic-ai/claude-code"]);
+
+    // Step 3 & 4: build the command, forwarding model and feature flags
+    const args = ["--print", "--dangerously-skip-permissions"];
+    if (ctx.model) args.push("--model", ctx.model);   // only when experiment sets it
+    if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
+    if (!ctx.session.isNew && ctx.session.id) args.push("--resume", ctx.session.id);
+    args.push(input.text);
+
+    // Step 2: authenticate via env, run the agent
+    const res = await sb.runCommand("claude", args, { env: auth() });
+
+    // Step 5: read the transcript, parse it into StreamEvent[]
+    const raw = await shared.captureLatestJsonl(sb, "~/.claude/projects");
+    ctx.session.id = shared.sessionIdFromClaudeTranscript(raw);  // enables multi-turn resume
+
+    return {
+      events: parseClaudeCode(raw),   // native JSONL → standard StreamEvent[]
+      status: res.exitCode === 0 ? "completed" : "failed",
+    };
+  },
+});
+```
+
+---
+
+## Shared helpers
+
+fasteval provides helpers that all sandbox adapters can reuse. Using them ensures that workspace preparation, diff collection, and validation are identical across every agent — results are always apples-to-apples.
+
+| Helper | What it does |
+|---|---|
+| `shared.prepareWorkspace(sandbox, fixture)` | Uploads workspace files (hiding `EVAL.ts`), runs `git init` and commits a baseline |
+| `shared.captureLatestJsonl(sandbox, dir)` | Finds and reads the most recent JSONL transcript in the given directory |
+| `shared.runValidation(sandbox, scripts, mode)` | Uploads test files and runs `EVAL.ts` (Vitest) plus any npm scripts |
+| `shared.injectO11yContext(sandbox, events)` | Derives the o11y summary from the event stream and writes it to `__fasteval__/results.json` so `EVAL.ts` can assert on agent behavior |
+| `shared.captureGeneratedFiles(sandbox)` | Runs `git diff HEAD` and returns `{ generated, deleted }` — the file-level diff used for `t.fileChanged`, `t.fileDeleted`, and `t.diff` |
+
+---
+
+## Transcript parsing: JSONL → `StreamEvent[]`
+
+Each coding agent writes its own native transcript format. Your adapter's fifth step is converting that format into the standard `StreamEvent[]` vocabulary that all fasteval assertions understand.
+
+```ts
+// Minimal transcript parser skeleton
+import type { StreamEvent } from "fasteval";
+
+function parseClaudeCode(rawJsonl: string): StreamEvent[] {
+  const events: StreamEvent[] = [];
+
+  for (const line of rawJsonl.trim().split("\n")) {
+    const entry = JSON.parse(line);
+
+    if (entry.type === "assistant" && entry.message?.content) {
+      for (const block of entry.message.content) {
+        if (block.type === "text") {
+          events.push({ type: "message", role: "assistant", text: block.text });
+        }
+        if (block.type === "tool_use") {
+          events.push({ type: "action.called", callId: block.id, name: block.name, input: block.input });
+        }
+      }
+    }
+
+    if (entry.type === "tool_result") {
+      events.push({
+        type: "action.result",
+        callId: entry.tool_use_id,
+        output: entry.content,
+        status: "completed",
+      });
+    }
+  }
+
+  return events;
+}
+```
+
+<Tip>
+  Once you normalize the transcript into `StreamEvent[]`, the entire suite of fasteval assertions becomes available: `t.calledTool`, `t.toolOrder`, `t.noFailedActions`, `t.messageIncludes`, and more — no extra work required.
+</Tip>
+
+---
+
+## `ctx.model` and `ctx.flags`
+
+Experiments pass a model tier and feature flags through `ctx`. Your adapter should forward them rather than hardcoding values — this allows the same adapter to serve multiple experiments without modification.
+
+```ts
+// Forward the experiment's model tier to the CLI (omit if not set → CLI uses its default)
+if (ctx.model) args.push("--model", ctx.model);
+
+// Read a feature flag to conditionally enable a tool
+if (ctx.flags.webResearch) args.push("--allowedTools", "WebSearch,WebFetch");
+```
+
+<Note>
+  `ctx.model` is set by the experiment configuration, not by the adapter. If an experiment doesn't specify a model, `ctx.model` is `undefined` and the agent CLI uses its built-in default.
+</Note>
+
+---
+
+## Registering a custom sandbox agent
+
+Built-in agents (`claude-code`, `codex`, `bub`) require no configuration — they are available immediately via `--agent <name>`. Custom adapters must be added to `fasteval.config.ts`:
+
+```ts
+// fasteval.config.ts
+import { defineConfig } from "fasteval";
+import myCustomAgent from "./agents/my-custom-agent.js";
+
+export default defineConfig({
+  agents: [myCustomAgent],
+  defaultAgent: "my-custom-agent",
+});
+```
+
+Then run it exactly like a built-in:
+
+```shell
+npx fasteval --agent my-custom-agent --sandbox docker fixtures/my-task
+```
+
+<Warning>
+  Never read `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or other secrets through `ctx`. Authentication is the adapter's private responsibility. Read secrets directly from `process.env` inside your adapter definition — they should never be visible to the experiment or the eval author.
+</Warning>

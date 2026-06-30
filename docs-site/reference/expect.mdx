@@ -1,0 +1,303 @@
+---
+title: "fasteval/expect matchers and custom assertion reference"
+sidebarTitle: "Expect"
+description: "Reference for fasteval/expect: includes, equals, matches, similarity, satisfies. Chain .gate() or .soft(), and build custom matchers with makeAssertion."
+---
+
+The `fasteval/expect` module provides a small set of composable matchers that you pass to `t.check()` and `t.require()`. Each matcher is a function that returns an `Assertion` — a typed scoring function of shape `(value: unknown) => number | Promise<number>` — and carries a default severity (`gate` or `soft`) that determines how a failure affects the eval verdict. You can override the severity on any matcher by chaining `.gate()` or `.soft()`.
+
+```ts
+import { includes, equals, matches, similarity, satisfies } from "fasteval/expect";
+```
+
+---
+
+## How matchers are used
+
+You pass matchers as the second argument to `t.check()` or `t.require()`:
+
+```ts
+// t.check — records the result; execution continues regardless
+t.check(t.reply, includes("confirmed"));
+t.check(turn.data, equals({ intent: "refund" }));
+
+// t.require — throws immediately if the assertion fails; use for preconditions
+t.require(turn.status, equals("completed"));
+```
+
+The difference between `check` and `require`:
+
+| Method | On failure | Use for |
+|--------|-----------|---------|
+| `t.check` | Records result, execution continues | Most assertions |
+| `t.require` | Throws immediately, aborts the test | Preconditions where continuing is meaningless |
+
+---
+
+## Matchers
+
+### includes
+
+```ts
+includes(substring: string | RegExp): Assertion
+```
+
+Asserts that `value` (coerced to a string) contains `substring`, or that it
+matches `pattern` if a `RegExp` is provided. Case-sensitive by default when
+passing a string.
+
+**Default severity:** `gate`
+
+```ts
+t.check(t.reply, includes("Paris"));
+t.check(t.reply, includes(/order #\d+/i));
+```
+
+Chain `.soft()` if you want this to score rather than hard-fail:
+
+```ts
+t.check(t.reply, includes("recommended").soft());
+```
+
+---
+
+### equals
+
+```ts
+equals(expected: unknown): Assertion
+```
+
+Asserts deep structural equality between `value` and `expected`. Works on
+primitives, plain objects, arrays, and nested structures. Equivalent to a
+recursive `JSON.stringify`-style comparison (order-insensitive for object keys,
+order-sensitive for arrays).
+
+**Default severity:** `gate`
+
+```ts
+t.check(turn.data, equals({ intent: "refund" }));
+t.check(turn.data, equals(["a", "b", "c"]));
+```
+
+<Tip>
+  For partial matching (asserting a subset of keys), use `satisfies` with a
+  custom predicate instead of `equals`.
+</Tip>
+
+---
+
+### matches
+
+```ts
+matches(schema: StandardSchema): Assertion
+```
+
+Validates `value` against a [Standard Schema](https://standardschema.dev/)
+compatible schema. Zod, Valibot, ArkType, and other Standard Schema-compliant
+libraries work out of the box.
+
+**Default severity:** `gate`
+
+```ts
+import { z } from "zod";
+
+t.check(
+  turn.data,
+  matches(z.object({ intent: z.enum(["refund", "ship", "track"]) })),
+);
+```
+
+Returns score `1` if validation passes, `0` if it fails. When the schema
+produces a parse error, the error message is attached to the recorded assertion
+for easy debugging.
+
+---
+
+### similarity
+
+```ts
+similarity(expected: string, opts?: SimilarityOpts): Assertion
+```
+
+Scores `value` (coerced to a string) against `expected` using **normalized
+Levenshtein distance**, returning a score between `0` (completely different)
+and `1` (identical). Useful when you want to reward approximate correctness
+rather than enforce an exact match.
+
+**Default severity:** `soft`
+
+```ts
+t.check(t.reply, similarity("The capital of France is Paris.").atLeast(0.8));
+```
+
+Chain `.gate()` if a minimum similarity must be met for the eval to pass:
+
+```ts
+t.check(t.reply, similarity(expectedSql).gate().atLeast(0.95));
+```
+
+**`opts` fields:**
+
+<ParamField body="atLeast" type="number">
+  Minimum score (0–1) required to pass. Defaults to the threshold set by
+  chaining `.atLeast(n)` on the returned assertion; if neither is specified the
+  assertion always records the raw score as a soft metric.
+</ParamField>
+
+---
+
+### satisfies
+
+```ts
+satisfies(predicate: (value: unknown) => boolean, label?: string): Assertion
+```
+
+Asserts `value` satisfies an arbitrary predicate function. The optional `label`
+string appears in reports and logs to make the assertion's intent readable.
+
+**Default severity:** `gate`
+
+```ts
+t.check(turn.data, satisfies((d) => (d as any).total > 0, "total is positive"));
+t.check(t.usage.outputTokens, satisfies((n) => (n as number) < 10_000, "output not verbose"));
+```
+
+The predicate receives the raw `value` without type coercion — cast as needed
+inside the function. Return `true` for pass, `false` for fail.
+
+---
+
+## Chaining severity
+
+Every matcher returns an `Assertion` object that exposes `.gate()` and `.soft()`
+methods, letting you override the default severity inline:
+
+```ts
+// Downgrade an includes assertion from gate to soft:
+t.check(t.reply, includes("optional detail").soft());
+
+// Upgrade a similarity assertion from soft to gate:
+t.check(t.reply, similarity(expected).gate());
+```
+
+Severity controls how a failure affects the eval **verdict**:
+
+| Severity | Failure effect | Strict mode (`--strict`) |
+|----------|---------------|--------------------------|
+| `gate` | Eval is `failed` | Same |
+| `soft` | Eval is `scored` (not `failed`) | Eval is `failed` |
+
+Use `gate` for correctness requirements and `soft` for quality metrics you want
+to track but not block on by default.
+
+---
+
+## The Assertion type
+
+An `Assertion` is a scoring function with attached metadata:
+
+```ts
+type Assertion = {
+  (value: unknown): number | Promise<number>;
+  name: string;
+  severity: "gate" | "soft";
+  gate(): Assertion;
+  soft(): Assertion;
+  atLeast(threshold: number): Assertion;  // available on similarity
+};
+```
+
+Scores are normalized to `[0, 1]`:
+- `1` — fully passing
+- `0` — fully failing
+- Values between 0 and 1 — partial credit (primarily used by `similarity` and judge assertions)
+
+For `gate` assertions, any score below `1` is treated as a failure. For `soft`
+assertions, scores are recorded and compared against the configured threshold
+(set via `.atLeast(n)`).
+
+---
+
+## Custom matchers with makeAssertion
+
+When the built-in matchers don't cover your use case, create a custom assertion
+with `makeAssertion`. Your scoring function receives the raw value and must
+return a number (synchronously or as a Promise).
+
+```ts
+import { makeAssertion } from "fasteval/expect";
+
+function jsonValid(): Assertion {
+  return makeAssertion({
+    name: "jsonValid",
+    severity: "gate",
+    score: (value) => {
+      try {
+        JSON.parse(String(value));
+        return 1;
+      } catch {
+        return 0;
+      }
+    },
+  });
+}
+
+t.check(t.reply, jsonValid());
+```
+
+<ParamField body="name" type="string" required>
+  A short identifier shown in reports and logs when this assertion fails.
+  Use a descriptive name that makes the failure reason self-evident.
+</ParamField>
+
+<ParamField body="severity" type='"gate" | "soft"' required>
+  The default severity for this assertion. Can be overridden by callers via
+  `.gate()` and `.soft()` chaining, just like built-in matchers.
+</ParamField>
+
+<ParamField body="score" type="(value: unknown) => number | Promise<number>" required>
+  The scoring function. Receives the raw value and must return a number in
+  `[0, 1]`. Async scoring functions (e.g. calling an external API) are fully
+  supported.
+
+  ```ts
+  score: async (value) => {
+    const res = await externalGrader.grade(String(value));
+    return res.score / 100;
+  },
+  ```
+</ParamField>
+
+### Async custom matchers
+
+Custom matchers support `async` scoring natively. The runner awaits all
+assertions before computing the final verdict.
+
+```ts
+function semanticallySimilar(reference: string): Assertion {
+  return makeAssertion({
+    name: "semanticallySimilar",
+    severity: "soft",
+    score: async (value) => {
+      const embedding1 = await embedText(String(value));
+      const embedding2 = await embedText(reference);
+      return cosineSimilarity(embedding1, embedding2);
+    },
+  });
+}
+
+t.check(t.reply, semanticallySimilar("A greedy algorithm for interval scheduling.").atLeast(0.75));
+```
+
+---
+
+## Quick reference
+
+| Matcher | Default severity | Score type | Best for |
+|---------|-----------------|------------|---------|
+| `includes(str \| RegExp)` | gate | binary (0 or 1) | Keyword / pattern presence |
+| `equals(expected)` | gate | binary (0 or 1) | Exact value or structural match |
+| `matches(schema)` | gate | binary (0 or 1) | Schema / type validation |
+| `similarity(expected)` | soft | continuous (0–1) | Near-match text, approximate answers |
+| `satisfies(predicate, label?)` | gate | binary (0 or 1) | Arbitrary logic |
+| `makeAssertion({ name, severity, score })` | configurable | continuous (0–1) | Any custom requirement |

@@ -1,0 +1,328 @@
+---
+title: "fasteval CLI: commands, flags, and exit codes reference"
+sidebarTitle: "CLI"
+description: "Complete fasteval CLI reference: run, init, list, exp, and view commands. Covers agent selection, sandbox, concurrency, budget, and JUnit CI output."
+---
+
+The fasteval CLI is your single entry point for discovering, running, and inspecting evals. Every command follows the same two-part input model: **positional arguments** select which evals to run (by eval ID prefix), and **flags** control how they run — which agent to use, which sandbox backend to spin up, and how results are reported.
+
+## Commands
+
+<CardGroup cols={2}>
+  <Card title="npx fasteval [id-prefix]" icon="play">
+    Discover and run evals. An optional positional argument filters by ID prefix.
+  </Card>
+  <Card title="npx fasteval init" icon="wand-magic-sparkles">
+    Scaffold `evals/`, `fasteval.config.ts`, and example eval files.
+  </Card>
+  <Card title="npx fasteval list" icon="list">
+    Discover and print all evals without running them.
+  </Card>
+  <Card title="npx fasteval exp &lt;group&gt;" icon="flask">
+    Run a named experiment group from the `experiments/` directory.
+  </Card>
+  <Card title="npx fasteval view" icon="eye">
+    Open the result viewer to inspect artifacts from the last run.
+  </Card>
+</CardGroup>
+
+---
+
+## `npx fasteval [id-prefix]`
+
+The default command discovers all `*.eval.ts` files and fixture directories under `evals/`, then runs the matching evals. Pass an ID prefix as the first positional argument to narrow the run to only evals whose ID starts with that prefix.
+
+```bash
+# Run all evals
+npx fasteval
+
+# Run only evals whose ID starts with "weather"
+npx fasteval weather
+
+# Run only the fixtures/button eval
+npx fasteval fixtures/button
+```
+
+<Note>
+  The positional argument is an **eval ID prefix**, not an agent name. IDs are derived from the file path (e.g. `evals/weather/brooklyn.eval.ts` → `weather/brooklyn`). Use `npx fasteval list` to see all discovered IDs.
+</Note>
+
+### Flags
+
+#### Agent & sandbox
+
+<ParamField query="--agent" type="string">
+  Select which agent adapter to use for this run. Overrides `defaultAgent` from
+  your config. Built-in values include `claude-code` and `codex`; any name
+  registered in `fasteval.config.ts` is valid.
+
+  ```bash
+  npx fasteval --agent claude-code
+  npx fasteval --agent codex fixtures/button
+  ```
+</ParamField>
+
+<ParamField query="--sandbox" type="string">
+  Choose the sandbox backend. Accepted values: `docker`, `vercel`, `auto`.
+
+  - `docker` — spin up a local Docker container (no cloud credentials needed).
+  - `vercel` — use Vercel Sandbox (requires `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN`).
+  - `auto` — detect automatically: use `vercel` when a Vercel token is present, otherwise fall back to `docker`.
+
+  ```bash
+  npx fasteval --agent claude-code --sandbox docker
+  npx fasteval --agent claude-code --sandbox auto
+  ```
+</ParamField>
+
+#### Run control
+
+<ParamField query="--watch" type="boolean">
+  Re-run matching evals whenever a source file changes. Useful during authoring
+  to get instant feedback as you edit.
+
+  ```bash
+  npx fasteval weather --watch
+  ```
+</ParamField>
+
+<ParamField query="--dry" type="boolean">
+  Discover and print the evals that would be run, but do not execute them.
+  Good for verifying your ID prefix and tag filters before a long run.
+
+  ```bash
+  npx fasteval --dry
+  npx fasteval fixtures --dry
+  ```
+</ParamField>
+
+<ParamField query="--force" type="boolean">
+  Bypass the result cache. Normally, evals whose fixture content and config
+  have not changed since their last passing run are skipped automatically.
+  Use `--force` to always re-run everything regardless of cached results.
+
+  ```bash
+  npx fasteval --force
+  ```
+</ParamField>
+
+<ParamField query="--runs" type="number">
+  Number of times to run each matched eval. Use this when you care about
+  pass rate rather than a single pass/fail verdict. Results are grouped and
+  reported as `pass@N`.
+
+  ```bash
+  # Run each eval 5 times and report pass@5
+  npx fasteval --runs 5 fixtures/button
+  ```
+</ParamField>
+
+<ParamField query="--no-early-exit" type="boolean">
+  Disable early-exit. By default, once one attempt for a given eval passes,
+  fasteval cancels the remaining attempts for that eval. Pass this flag to run
+  all `--runs` attempts regardless, which gives you the full pass rate
+  distribution.
+
+  ```bash
+  npx fasteval --runs 10 --no-early-exit fixtures/button
+  ```
+</ParamField>
+
+<ParamField query="--tag" type="string">
+  Filter evals by tag. Only evals that declare the given tag in their definition
+  will be included in the run.
+
+  ```bash
+  npx fasteval --tag smoke
+  ```
+</ParamField>
+
+#### Performance & limits
+
+<ParamField query="--max-concurrency" type="number">
+  Override the `maxConcurrency` value set in `fasteval.config.ts`. Controls
+  how many eval attempts run in parallel.
+
+  ```bash
+  npx fasteval --max-concurrency 4
+  ```
+</ParamField>
+
+<ParamField query="--timeout" type="number">
+  Per-eval timeout in milliseconds. If an eval takes longer than this value,
+  it is force-cancelled and marked as `failed` with `error: timeout`.
+  Overrides `timeoutMs` from config.
+
+  ```bash
+  # 10-minute timeout per eval
+  npx fasteval --timeout 600000
+  ```
+</ParamField>
+
+<ParamField query="--budget" type="number">
+  Cost limit in USD for the entire run. fasteval tracks cumulative estimated
+  spend across all attempts. Once the budget is exceeded, no new attempts are
+  dispatched; in-flight attempts complete normally. Overrides `budget` from
+  config.
+
+  ```bash
+  npx fasteval --budget 2.50
+  ```
+</ParamField>
+
+#### CI & reporting
+
+<ParamField query="--strict" type="boolean">
+  Treat `scored` verdicts (where the LLM-as-judge score falls below the
+  configured threshold) as failures. Without `--strict`, scored-but-below-
+  threshold evals produce a non-zero exit code only when their verdict is
+  explicitly `failed`. With `--strict`, they also cause a non-zero exit. Use
+  this flag in CI to enforce quality thresholds.
+
+  ```bash
+  npx fasteval --strict --junit .fasteval/junit.xml
+  ```
+</ParamField>
+
+<ParamField query="--junit" type="string">
+  Write a JUnit XML report to the specified path. Compatible with GitHub
+  Actions, CircleCI, and any CI system that ingests JUnit reports.
+
+  ```bash
+  npx fasteval --junit .fasteval/junit.xml
+  ```
+</ParamField>
+
+---
+
+## `npx fasteval init`
+
+Scaffolds the minimum files needed to start writing evals in the current repository. Running `init` creates:
+
+```
+your-project/
+├─ fasteval.config.ts
+└─ evals/
+   ├─ hello.eval.ts            # example: conversational eval
+   └─ fixtures/
+      └─ button/               # example: sandbox coding-agent eval
+         ├─ PROMPT.md
+         ├─ EVAL.ts
+         └─ package.json
+```
+
+```bash
+npm install -D fasteval
+npx fasteval init
+```
+
+<Tip>
+  After running `init`, open `fasteval.config.ts` and set your `defaultAgent`
+  and `sandbox` values before running your first eval.
+</Tip>
+
+---
+
+## `npx fasteval list`
+
+Discovers all evals (and, if an `experiments/` directory exists, all experiment files) and prints their IDs. Does not run anything. Use this to verify discovery before a run.
+
+```bash
+npx fasteval list
+
+# Output:
+# classify
+# weather/brooklyn
+# weather/manhattan
+# fixtures/button
+```
+
+You can combine `list` with a positional prefix to preview which evals a filtered run would include:
+
+```bash
+npx fasteval list weather
+# weather/brooklyn
+# weather/manhattan
+```
+
+---
+
+## `npx fasteval exp <group>`
+
+Runs an experiment group. fasteval scans the `experiments/` directory for TypeScript files whose default export is a `defineExperiment` call. The `<group>` argument is the folder name — all experiment files inside that folder are treated as one comparable group.
+
+```bash
+# Run all experiments in experiments/compare/
+npx fasteval exp compare
+```
+
+<Note>
+  Experiments expand into a matrix of `agent × model × eval × runs` attempts.
+  Results are reported as pass rates grouped by `(agent, model, eval)`, rather
+  than single pass/fail verdicts.
+</Note>
+
+---
+
+## `npx fasteval view`
+
+Opens the result viewer in your browser. The viewer reads artifacts from the most recent `.fasteval/<timestamp>/` output directory and lets you inspect per-eval results, transcripts, file diffs, and event streams.
+
+```bash
+npx fasteval view
+```
+
+---
+
+## Exit codes
+
+fasteval's exit code lets CI systems gate on eval results without parsing output.
+
+| Condition | Exit code |
+|---|---|
+| All evals passed or scored (without `--strict`) | `0` |
+| Any eval failed | non-zero |
+| Any eval scored below threshold with `--strict` | non-zero |
+
+---
+
+## Common patterns
+
+<Tabs>
+  <Tab title="Local development">
+    ```bash
+    # Watch a specific eval while you develop
+    npx fasteval fixtures/button --agent claude-code --sandbox docker --watch
+
+    # Dry-run to check which evals will run
+    npx fasteval --dry
+
+    # Force a re-run ignoring the cache
+    npx fasteval --force fixtures/button
+    ```
+  </Tab>
+  <Tab title="CI pipeline">
+    ```yaml
+    # .github/workflows/evals.yml
+    - name: Run evals
+      run: npx fasteval --strict --junit .fasteval/junit.xml
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    ```
+  </Tab>
+  <Tab title="Pass rate measurement">
+    ```bash
+    # Run each eval 10 times; stop early once one attempt passes
+    npx fasteval --runs 10 fixtures/button --agent claude-code --sandbox docker
+
+    # Run all 10 attempts regardless (full distribution)
+    npx fasteval --runs 10 --no-early-exit fixtures/button
+    ```
+  </Tab>
+  <Tab title="Cost-guarded experiment">
+    ```bash
+    # Run the comparison experiment but cap spend at $5
+    npx fasteval exp compare --budget 5.00
+    ```
+  </Tab>
+</Tabs>
