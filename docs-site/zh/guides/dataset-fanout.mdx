@@ -1,0 +1,83 @@
+---
+title: "数据集扇出: 用多个 case 运行同一套 eval"
+sidebarTitle: "数据集"
+description: "从 .eval.ts 文件导出数组，将一套 eval 逻辑扇出成多个 case。用 loadYaml 或 loadJson 读取外部数据集，并获得稳定 ID。"
+---
+
+数据集扇出适合大量结构相同、输入不同的测试。例如 SQL 生成、意图分类、检索问答和工具选择。
+
+## 扇出如何工作
+
+一个 `.eval.ts` 文件默认导出数组：
+
+```ts
+import { defineEval } from "fasteval";
+import { equals } from "fasteval/expect";
+
+const rows = [
+  { task: "Count users", prompt: "Count all users", sql: "SELECT COUNT(*) FROM users;" },
+  { task: "Recent orders", prompt: "Find recent orders", sql: "SELECT * FROM orders ORDER BY created_at DESC LIMIT 10;" },
+];
+
+export default rows.map((row) =>
+  defineEval({
+    description: row.task,
+    async test(t) {
+      await t.send(row.prompt);
+      t.check(t.reply, equals(row.sql));
+    },
+  }),
+);
+```
+
+## 生成 ID
+
+如果文件是 `evals/sql.eval.ts`，生成的 ID 是：
+
+```text
+sql/0000
+sql/0001
+```
+
+序号零填充，便于稳定引用和过滤。
+
+## 从 YAML / JSON 加载
+
+```ts
+import { loadYaml } from "fasteval/loaders";
+
+const doc = await loadYaml("evals/data/sql-cases.yaml");
+const rows = doc.cases as { task: string; prompt: string; sql: string }[];
+```
+
+```yaml
+cases:
+  - task: Count users
+    prompt: Count all rows in the users table
+    sql: SELECT COUNT(*) FROM users;
+```
+
+## 过滤数据集 eval
+
+```bash
+# 运行整个数据集
+npx fasteval sql
+
+# 只运行第一个 case
+npx fasteval sql/0000
+```
+
+## 数据集 vs 独立文件
+
+<Tabs>
+  <Tab title="使用数据集">
+    case 结构完全一致，主要差异是输入和预期输出。
+  </Tab>
+  <Tab title="使用独立文件">
+    每个 case 有不同流程、不同断言或需要不同 agent 配置。
+  </Tab>
+</Tabs>
+
+<Tip>
+  数据集适合“横向覆盖”，独立 eval 文件适合“行为复杂”的场景。
+</Tip>

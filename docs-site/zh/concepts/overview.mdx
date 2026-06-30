@@ -1,0 +1,111 @@
+---
+title: "fasteval 架构: evals、agents 与 sandboxes"
+sidebarTitle: "概览"
+description: "理解 fasteval core、agent adapters 和 sandbox backends 如何配合，用统一 TypeScript API 评估任意 AI agent。"
+---
+
+fasteval 的核心设计是把“评测逻辑”与“如何连接被测对象”分开。core 只负责发现、调度、评分和报告；agent adapter 负责调用被测系统；sandbox backend 负责隔离文件系统。
+
+## 四层架构
+
+```text
+Eval files / fixtures
+        ↓
+fasteval core
+        ↓
+Agent adapter
+        ↓
+Subject under test / Sandbox backend
+```
+
+## core 负责什么
+
+<CardGroup cols={2}>
+  <Card title="Eval 发现" icon="magnifying-glass">
+    发现 `*.eval.ts` 文件和 fixture 目录，并从路径推导稳定 ID。
+  </Card>
+  <Card title="并发调度" icon="timeline">
+    控制运行池大小、重试、attempt 和 early-exit。
+  </Card>
+  <Card title="断言与评分" icon="chart-bar">
+    收集 `t.check`、作用域断言、judge 分数和测试结果。
+  </Card>
+  <Card title="缓存" icon="database">
+    用 fingerprint 跳过已通过且输入未变的 case。
+  </Card>
+  <Card title="报告" icon="file-lines">
+    输出控制台、JSON、JUnit 等报告。
+  </Card>
+  <Card title="Artifacts" icon="folder-open">
+    保存 summary、event stream、transcript、diff 和测试输出。
+  </Card>
+</CardGroup>
+
+## Agent / Adapter 边界
+
+<Note>
+  `Agent` 是 fasteval core 看到的抽象；`Adapter` 是你写的具体实现。core 不知道你的 HTTP 协议、CLI 参数或鉴权方式。
+</Note>
+
+这条边界让 fasteval 保持通用。评估本地函数、远程服务、Claude Code、Codex 或自定义 agent 时，runner 和 scorers 的逻辑不需要改变。
+
+### 为什么没有 `--url`
+
+URL 是某个 adapter 的私有配置，而不是 CLI 的位置参数。CLI 位置参数只选择“跑哪些 eval”；`--agent` 选择“用哪个 adapter 跑”。
+
+## Sandbox 负责什么
+
+<Tabs>
+  <Tab title="Docker">
+    本地容器后端，适合开发和 CI 中的 coding-agent eval。
+  </Tab>
+  <Tab title="Vercel Sandbox">
+    云端 sandbox 后端，适合更强隔离或更大的运行资源。
+  </Tab>
+  <Tab title="第三方后端">
+    只要实现 `Sandbox` 接口，就可以接入其他沙箱服务。
+  </Tab>
+</Tabs>
+
+## 关键术语
+
+<AccordionGroup>
+  <Accordion title="Eval">
+    一个测试用例：描述、agent 引用和 `test(t)` 函数。
+  </Accordion>
+  <Accordion title="Agent">
+    core 通过名字调用的一条连接，负责返回标准 `Turn`。
+  </Accordion>
+  <Accordion title="Adapter">
+    agent 的具体实现，知道如何调用你的服务或 CLI。
+  </Accordion>
+  <Accordion title="Sandbox">
+    给 coding agent 使用的隔离运行环境。
+  </Accordion>
+  <Accordion title="Turn">
+    一次 `t.send()` 的不可变结果快照。
+  </Accordion>
+  <Accordion title="Artifact">
+    运行后落盘的结构化结果文件。
+  </Accordion>
+  <Accordion title="Experiment">
+    用矩阵方式比较多个 agent、model 或 flags 的运行配置。
+  </Accordion>
+</AccordionGroup>
+
+## 端到端流程
+
+<Steps>
+  <Step title="Discovery">发现 eval 文件和 fixture。</Step>
+  <Step title="Scheduling">根据并发、缓存和 attempt 计划运行。</Step>
+  <Step title="Agent send">调用 adapter，让被测对象产出 `Turn`。</Step>
+  <Step title="Scoring">执行断言、judge 和测试。</Step>
+  <Step title="Verdict">把所有结果折叠为 `passed`、`failed`、`scored` 或 `skipped`。</Step>
+  <Step title="Reporting & artifacts">输出报告并保存结构化文件。</Step>
+</Steps>
+
+## 相关阅读
+
+- [Evals](/zh/concepts/evals) — eval 是什么，以及生命周期细节。
+- [Agents & Adapters](/zh/concepts/agents-adapters) — 如何写和注册 adapter。
+- [Scoring](/zh/concepts/scoring) — 断言词汇和判决规则。

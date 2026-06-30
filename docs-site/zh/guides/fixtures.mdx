@@ -1,0 +1,86 @@
+---
+title: "Sandbox fixtures: 用任务评估 coding agents"
+sidebarTitle: "Fixtures"
+description: "fixture 是包含 PROMPT.md 和 EVAL.ts 的目录，fasteval 用它在隔离环境中运行 coding agent，并用 Vitest 测试验证输出。"
+---
+
+Fixture 是评估 coding agent 的推荐格式。它把“给 agent 的任务”和“验证结果的测试”放在同一个目录里，但验证文件对 agent 隐藏。
+
+## 目录结构
+
+```text
+evals/fixtures/button/
+├─ PROMPT.md
+├─ EVAL.ts
+├─ package.json
+├─ tsconfig.json
+└─ src/
+```
+
+| 文件 | 作用 |
+|---|---|
+| `PROMPT.md` | 发给 agent 的任务 |
+| `EVAL.ts` | 验证测试，agent 完成后才出现 |
+| `package.json` | fixture 的依赖和脚本 |
+| `src/` | 初始 workspace |
+
+## `PROMPT.md`
+
+```md
+Create `src/components/Button.tsx`.
+
+The component must accept:
+- `label: string`
+- `onClick: () => void`
+```
+
+Prompt 应描述目标行为，不要把测试答案写进去。
+
+## `EVAL.ts`
+
+```ts
+import { test, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+
+test("Button component exists", () => {
+  expect(existsSync("src/components/Button.tsx")).toBe(true);
+});
+
+test("accepts label and onClick", () => {
+  const src = readFileSync("src/components/Button.tsx", "utf-8");
+  expect(src).toContain("label");
+  expect(src).toContain("onClick");
+});
+```
+
+## 运行 fixture
+
+```bash
+npx fasteval --agent claude-code --sandbox docker fixtures/button
+```
+
+位置参数仍然是 eval ID 前缀，不是 agent 名。
+
+## 验证 agent 行为
+
+fasteval 会把 o11y 摘要注入 `__fasteval__/results.json`，`EVAL.ts` 可以检查 agent 是否调用了预期命令：
+
+```ts
+import { test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+test("used project test script", () => {
+  const result = JSON.parse(readFileSync("__fasteval__/results.json", "utf-8"));
+  const commands = result.o11y.shellCommands.map((c: { command: string }) => c.command);
+  expect(commands.some((cmd) => cmd.includes("npm test"))).toBe(true);
+});
+```
+
+## 何时用 fixture
+
+- 需要 agent 修改真实文件。
+- 需要跑项目测试、构建或 lint。
+- 需要比较生成 diff。
+- 任务适合批量收集 pass rate。
+
+如果只是调用 HTTP 或进程内函数，用普通 `defineEval` 更轻。

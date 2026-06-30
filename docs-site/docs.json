@@ -19,72 +19,152 @@
     }
   },
   "navigation": {
-    "tabs": [
+    "languages": [
       {
-        "tab": "Documentation",
-        "groups": [
+        "language": "en",
+        "default": true,
+        "tabs": [
           {
-            "group": "Get Started",
-            "pages": [
-              "introduction",
-              "quickstart",
-              "installation"
+            "tab": "Documentation",
+            "groups": [
+              {
+                "group": "Get Started",
+                "pages": [
+                  "introduction",
+                  "quickstart",
+                  "installation"
+                ]
+              },
+              {
+                "group": "Core Concepts",
+                "pages": [
+                  "concepts/overview",
+                  "concepts/evals",
+                  "concepts/agents-adapters",
+                  "concepts/scoring"
+                ]
+              },
+              {
+                "group": "Writing Evals",
+                "pages": [
+                  "guides/authoring",
+                  "guides/fixtures",
+                  "guides/dataset-fanout",
+                  "guides/scoring-guide"
+                ]
+              },
+              {
+                "group": "Connecting Agents",
+                "pages": [
+                  "guides/remote-agent",
+                  "guides/sandbox-agent",
+                  "guides/sandbox-backends"
+                ]
+              },
+              {
+                "group": "Running & Observing",
+                "pages": [
+                  "guides/runner",
+                  "guides/experiments",
+                  "guides/ci-integration",
+                  "guides/viewing-results"
+                ]
+              }
             ]
           },
           {
-            "group": "Core Concepts",
-            "pages": [
-              "concepts/overview",
-              "concepts/evals",
-              "concepts/agents-adapters",
-              "concepts/scoring"
-            ]
-          },
-          {
-            "group": "Writing Evals",
-            "pages": [
-              "guides/authoring",
-              "guides/fixtures",
-              "guides/dataset-fanout",
-              "guides/scoring-guide"
-            ]
-          },
-          {
-            "group": "Connecting Agents",
-            "pages": [
-              "guides/remote-agent",
-              "guides/sandbox-agent",
-              "guides/sandbox-backends"
-            ]
-          },
-          {
-            "group": "Running & Observing",
-            "pages": [
-              "guides/runner",
-              "guides/experiments",
-              "guides/ci-integration",
-              "guides/viewing-results"
+            "tab": "Reference",
+            "groups": [
+              {
+                "group": "API",
+                "pages": [
+                  "reference/define-eval",
+                  "reference/define-agent",
+                  "reference/define-config",
+                  "reference/expect"
+                ]
+              },
+              {
+                "group": "CLI",
+                "pages": [
+                  "reference/cli",
+                  "reference/configuration"
+                ]
+              }
             ]
           }
         ]
       },
       {
-        "tab": "Reference",
-        "groups": [
+        "language": "zh-Hans",
+        "tabs": [
           {
-            "group": "API",
-            "pages": [
-              "reference/define-eval",
-              "reference/define-agent",
-              "reference/define-config",
-              "reference/expect"
+            "tab": "文档",
+            "groups": [
+              {
+                "group": "开始使用",
+                "pages": [
+                  "zh/introduction",
+                  "zh/quickstart",
+                  "zh/installation"
+                ]
+              },
+              {
+                "group": "核心概念",
+                "pages": [
+                  "zh/concepts/overview",
+                  "zh/concepts/evals",
+                  "zh/concepts/agents-adapters",
+                  "zh/concepts/scoring"
+                ]
+              },
+              {
+                "group": "编写 eval",
+                "pages": [
+                  "zh/guides/authoring",
+                  "zh/guides/fixtures",
+                  "zh/guides/dataset-fanout",
+                  "zh/guides/scoring-guide"
+                ]
+              },
+              {
+                "group": "连接 Agent",
+                "pages": [
+                  "zh/guides/remote-agent",
+                  "zh/guides/sandbox-agent",
+                  "zh/guides/sandbox-backends"
+                ]
+              },
+              {
+                "group": "运行与观察",
+                "pages": [
+                  "zh/guides/runner",
+                  "zh/guides/experiments",
+                  "zh/guides/ci-integration",
+                  "zh/guides/viewing-results"
+                ]
+              }
             ]
           },
           {
-            "group": "CLI",
-            "pages": [
-              "reference/cli",
-              "reference/configuration"
+            "tab": "参考",
+            "groups": [
+              {
+                "group": "API",
+                "pages": [
+                  "zh/reference/define-eval",
+                  "zh/reference/define-agent",
+                  "zh/reference/define-config",
+                  "zh/reference/expect"
+                ]
+              },
+              {
+                "group": "CLI",
+                "pages": [
+                  "zh/reference/cli",
+                  "zh/reference/configuration"
+                ]
+              }
             ]
           }
         ]

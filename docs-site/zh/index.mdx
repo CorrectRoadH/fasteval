@@ -1,0 +1,93 @@
+---
+title: "fasteval: 面向 TypeScript 的轻量 AI agent evals"
+sidebarTitle: "首页"
+description: "fasteval 是一个 TypeScript agent eval 工具。用几分钟写 eval，有界并发运行，并查看结构化 artifacts。"
+---
+
+fasteval 是一个轻量的 TypeScript 库，用来评估 AI agents。无论你在测对话助手、Claude Code / Codex 这类 coding agent，还是进程内函数，fasteval 都提供同一套 `defineEval` API，并内置评分、并发调度和结构化结果 artifacts。
+
+<CardGroup cols={2}>
+  <Card title="快速开始" icon="bolt" href="/zh/quickstart">
+    安装 fasteval，并在 10 分钟内跑起第一个 eval。
+  </Card>
+  <Card title="编写 eval" icon="pen-to-square" href="/zh/guides/authoring">
+    学习单轮、多轮和数据集扇出的 eval 写法。
+  </Card>
+  <Card title="连接 Agent" icon="plug" href="/zh/guides/remote-agent">
+    接入自己的 agent，或使用 Claude Code、Codex 的内置适配器。
+  </Card>
+  <Card title="CLI 参考" icon="terminal" href="/zh/reference/cli">
+    查看 fasteval CLI 的命令和 flags。
+  </Card>
+</CardGroup>
+
+## fasteval 能评什么
+
+fasteval 用同一套 `defineEval` API 覆盖三类被测对象：
+
+<CardGroup cols={3}>
+  <Card title="Coding Agents" icon="code" href="/zh/guides/sandbox-agent">
+    把 Claude Code、Codex 或 bub 放进隔离沙箱，用测试验证它改出的代码。
+  </Card>
+  <Card title="HTTP 服务" icon="server" href="/zh/guides/remote-agent">
+    请求已部署的 agent endpoint 或 web service，并断言回复、工具调用和结构化输出。
+  </Card>
+  <Card title="进程内函数" icon="function" href="/zh/guides/authoring">
+    直接调用你自己的函数，把 eval 当成能进 CI 的语义级单元测试。
+  </Card>
+</CardGroup>
+
+## 为什么叫 fast
+
+<CardGroup cols={3}>
+  <Card title="写得快" icon="feather">
+    一个文件就是一个 eval。ID 从路径自动推导，没有样板代码，也没有回调地狱。
+  </Card>
+  <Card title="跑得快" icon="gauge-high">
+    有界并发、基于指纹的结果缓存、沙箱复用和 early-exit。
+  </Card>
+  <Card title="看得快" icon="eye">
+    流式控制台输出、结构化 artifacts，以及内置结果查看器。
+  </Card>
+</CardGroup>
+
+## 开始使用
+
+<Steps>
+  <Step title="安装 fasteval">
+    ```bash
+    npm install -D fasteval
+    ```
+  </Step>
+  <Step title="初始化项目">
+    ```bash
+    npx fasteval init
+    ```
+    这会生成 `evals/`、`fasteval.config.ts` 和示例 eval 文件。
+  </Step>
+  <Step title="写第一个 eval">
+    ```typescript evals/weather/brooklyn.eval.ts
+    import { defineEval } from "fasteval";
+    import { includes } from "fasteval/expect";
+
+    export default defineEval({
+      description: "Brooklyn weather query",
+      async test(t) {
+        await t.send("What's the weather in Brooklyn today?");
+        t.succeeded();
+        t.calledTool("get_weather", { input: { city: "Brooklyn" } });
+        t.check(t.reply, includes("sunny"));
+      },
+    });
+    ```
+  </Step>
+  <Step title="运行">
+    ```bash
+    npx fasteval weather
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+  阅读 [快速开始](/zh/quickstart)，完整走一遍函数 eval、对话 agent 和 coding-agent fixture。
+</Tip>

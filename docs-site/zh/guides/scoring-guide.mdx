@@ -1,0 +1,93 @@
+---
+title: "评分指南: 断言、judge 和成本限制"
+sidebarTitle: "评分指南"
+description: "用 fasteval 的五种评分机制评估任意 eval：值断言、作用域断言、LLM-as-judge、test-as-scoring 和效率检查。"
+---
+
+好的 eval 应该尽量把“是否成功”拆成可解释的信号。fasteval 允许你混合精确断言、语义 judge、事件流检查和真实测试。
+
+## 选择断言类型
+
+| 目标 | 推荐机制 |
+|---|---|
+| 回复包含固定字段 | `includes` / `matches` |
+| 结构化 JSON 完全匹配 | `equals` |
+| 工具调用是否发生 | `t.calledTool` / `t.notCalledTool` |
+| 输出是否语义正确 | `t.judge.*` |
+| 代码是否工作 | `EVAL.ts` 或 `t.testsPassed()` |
+| 成本是否可控 | `t.maxTokens` / `t.maxCost` |
+
+## 值断言
+
+```ts
+import { includes, equals, matches } from "fasteval/expect";
+
+t.check(t.reply, includes("refund"));
+t.check(turn.data, equals({ intent: "refund" }));
+t.check(t.reply, matches(/order #\d+/));
+```
+
+值断言适合精确、稳定、低歧义的结果。
+
+## 作用域断言
+
+```ts
+t.succeeded();
+t.calledTool("search");
+t.usedNoTools();
+t.fileChanged("src/app.ts");
+t.testsPassed();
+```
+
+它们检查整次运行的事实，通常来自标准事件流或 sandbox artifacts。
+
+## LLM-as-judge
+
+```ts
+t.judge.factuality("Refunds are available within 30 days.", { on: t.reply }).atLeast(0.8);
+t.judge.score("The answer is specific, polite, and does not invent policy.", { on: t.reply }).atLeast(0.75);
+```
+
+Judge 适合语义质量，但不适合替代所有确定性断言。能精确检查的地方优先精确检查。
+
+## Gate 和 soft 的取舍
+
+```ts
+t.check(t.reply, includes("refund").gate());
+t.check(t.reply, includes("friendly tone").soft());
+```
+
+- `gate`：失败就是失败。
+- `soft`：保留分数，用于比较质量。
+
+## 代码任务用测试评分
+
+在 fixture 的 `EVAL.ts` 里写真实测试：
+
+```ts
+import { test, expect } from "vitest";
+import { readFileSync } from "node:fs";
+
+test("uses accessible button", () => {
+  const src = readFileSync("src/components/Button.tsx", "utf-8");
+  expect(src).toContain("button");
+  expect(src).toContain("onClick");
+});
+```
+
+## 成本和效率
+
+```ts
+t.maxTokens(25_000);
+t.maxCost(0.1);
+```
+
+对 coding agent 和长链路 agent 尤其有用，可以防止通过大量重试或工具调用掩盖质量问题。
+
+## 实用建议
+
+- 先写 1-2 个 gate，保证任务底线。
+- 再加 soft 分数比较质量。
+- 复杂语义用 judge，但让 judge 有明确 rubric。
+- coding-agent 结果尽量用真实测试验证。
+- 把失败消息写清楚，方便从报告直接定位问题。

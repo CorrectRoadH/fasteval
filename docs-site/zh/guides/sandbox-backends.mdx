@@ -1,0 +1,57 @@
+---
+title: "Sandbox backends: Docker、Vercel 与第三方"
+sidebarTitle: "Sandbox Backends"
+description: "fasteval 在 Docker 或 Vercel sandbox 中运行 coding agents。了解如何选择后端、配置权限，并通过 warm pools 改善性能。"
+---
+
+Sandbox backend 是创建和管理隔离运行环境的基础设施。fasteval 把它们包装成同一个 `Sandbox` 接口，所以 adapter 不需要知道当前用的是本地 Docker、Vercel micro-VM 还是第三方云服务。
+
+## `Sandbox` 接口
+
+Adapter 常用操作包括：
+
+| 方法 | 用途 |
+|---|---|
+| `runCommand(cmd, args)` | 运行命令 |
+| `runShell(script)` | 运行 shell 脚本 |
+| `readFile(path)` | 读取文件 |
+| `writeFiles(files)` | 写入一组文件 |
+| `uploadFiles(files)` | 上传 workspace 或测试文件 |
+| `getWorkingDirectory()` | 读取当前工作目录 |
+| `setWorkingDirectory(path)` | 切换工作目录 |
+| `stop()` | 销毁环境 |
+
+## 选择后端
+
+```bash
+npx fasteval --agent claude-code --sandbox docker fixtures/button
+npx fasteval --agent claude-code --sandbox vercel fixtures/button
+npx fasteval --agent claude-code --sandbox auto fixtures/button
+```
+
+`auto` 通常在检测到云端凭据时使用云端后端，否则回退到 Docker。
+
+## Docker
+
+Docker 适合本地开发和标准 CI。优点是简单、可控、无云端依赖；缺点是机器资源有限，冷启动和安装依赖可能较慢。
+
+## Vercel Sandbox
+
+Vercel Sandbox 适合需要云端隔离、更多资源或更稳定环境的任务。需要相应 token 或 OIDC 配置。
+
+## 第三方后端
+
+只要实现 `Sandbox` 接口，就可以接入其他 sandbox provider。adapter 仍然只依赖接口，不依赖 provider 私有 API。
+
+## 权限和 root
+
+不同后端对 root 权限、网络、文件系统和进程生命周期的约束不同。编写 fixture 时尽量避免依赖宿主机环境，把依赖写进 `package.json` 或 fixture setup。
+
+## 性能建议
+
+- 减少 fixture 依赖体积。
+- 使用缓存或预热机制。
+- 控制 `sandboxConcurrency`，避免本地 Docker 资源耗尽。
+- 把慢测试拆成必要的 gate 和可选的 soft 检查。
+
+Warm pools 和复用属于 runner / scheduler 层面的能力，详见 [Runner](/zh/guides/runner)。

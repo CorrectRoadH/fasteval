@@ -1,0 +1,133 @@
+---
+title: "fasteval 快速开始: 10 分钟跑起第一个 eval"
+sidebarTitle: "快速开始"
+description: "安装 fasteval、初始化项目，并运行函数、对话 agent 和 coding-agent 三类 eval。"
+---
+
+这个教程会从零开始创建一个最小 fasteval 项目，并展示三种常见 eval：进程内函数、对话 agent、沙箱里的 coding agent。
+
+<Steps>
+  <Step title="安装">
+    ```bash
+    npm install -D fasteval
+    ```
+  </Step>
+  <Step title="初始化">
+    ```bash
+    npx fasteval init
+    ```
+  </Step>
+  <Step title="查看生成文件">
+    ```text
+    evals/
+    fasteval.config.ts
+    ```
+  </Step>
+</Steps>
+
+## 配置项目
+
+`fasteval.config.ts` 是项目级入口：
+
+```ts
+import { defineConfig } from "fasteval";
+
+export default defineConfig({
+  maxConcurrency: 4,
+  timeoutMs: 300_000,
+  sandbox: "auto",
+});
+```
+
+如果你的 eval 没有在文件里指定 `agent`，可以在配置里设置 `defaultAgent`，也可以运行时传 `--agent`。
+
+## Eval 1: 进程内函数
+
+适合把 eval 当成语义级单元测试：
+
+```ts evals/classify.eval.ts
+import { defineEval } from "fasteval";
+import { equals } from "fasteval/expect";
+
+function classify(text: string) {
+  return text.includes("refund") ? "refund" : "other";
+}
+
+export default defineEval({
+  description: "Intent classification: refund request",
+  async test(t) {
+    const result = classify("I need a refund for my last order");
+    t.check(result, equals("refund"));
+  },
+});
+```
+
+```bash
+npx fasteval classify
+```
+
+## Eval 2: 对话 agent
+
+对话 agent 通过 adapter 接入。eval 只描述交互和断言：
+
+```ts evals/weather/brooklyn.eval.ts
+import { defineEval } from "fasteval";
+import { includes } from "fasteval/expect";
+
+export default defineEval({
+  description: "Brooklyn weather query",
+  agent: "my-agent",
+  async test(t) {
+    await t.send("What's the weather in Brooklyn today?");
+    t.succeeded();
+    t.calledTool("get_weather", { input: { city: "Brooklyn" } });
+    t.check(t.reply, includes("sunny"));
+  },
+});
+```
+
+## Eval 3: 沙箱里的 coding agent
+
+Coding-agent fixture 是一个目录：
+
+```text
+evals/fixtures/button/
+├─ PROMPT.md
+├─ EVAL.ts
+└─ package.json
+```
+
+`PROMPT.md` 是发给 agent 的任务，`EVAL.ts` 是验证逻辑。验证文件对 agent 不可见，只有 agent 完成任务后才会放进沙箱运行。
+
+```bash
+npx fasteval --agent claude-code --sandbox docker fixtures/button
+```
+
+## 查看结果
+
+每次运行都会写入 `.fasteval/<timestamp>/`：
+
+```bash
+npx fasteval view
+```
+
+viewer 可以查看每个 eval 的 verdict、transcript、event stream、diff 和测试输出。
+
+## 放进 CI
+
+```yaml
+name: evals
+on: [pull_request]
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+      - run: npm ci
+      - run: npx fasteval --strict
+```
+
+<Tip>
+  接下来读 [编写 eval](/zh/guides/authoring) 和 [评分指南](/zh/guides/scoring-guide)，把示例替换成你的真实场景。
+</Tip>

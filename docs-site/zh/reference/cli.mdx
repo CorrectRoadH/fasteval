@@ -1,0 +1,118 @@
+---
+title: "fasteval CLI: 命令、flags 和退出码参考"
+sidebarTitle: "CLI"
+description: "fasteval CLI 参考：run、init、list、exp 和 view 命令，以及 agent、sandbox、并发、预算和 JUnit CI 输出。"
+---
+
+fasteval CLI 是发现、运行和查看 eval 的入口。它遵循两类输入：**位置参数**选择跑哪些 eval，**flags** 控制如何运行。
+
+## 命令
+
+<CardGroup cols={2}>
+  <Card title="npx fasteval [id-prefix]" icon="play">
+    发现并运行 eval。可选位置参数按 ID 前缀过滤。
+  </Card>
+  <Card title="npx fasteval init" icon="wand-magic-sparkles">
+    生成 `evals/`、`fasteval.config.ts` 和示例文件。
+  </Card>
+  <Card title="npx fasteval list" icon="list">
+    发现并打印所有 eval，不运行。
+  </Card>
+  <Card title="npx fasteval exp &lt;group&gt;" icon="flask">
+    运行 `experiments/` 里的命名实验组。
+  </Card>
+  <Card title="npx fasteval view" icon="eye">
+    打开结果查看器，查看最近一次运行的 artifacts。
+  </Card>
+</CardGroup>
+
+## `npx fasteval [id-prefix]`
+
+```bash
+# 运行所有 eval
+npx fasteval
+
+# 只运行 ID 以 weather 开头的 eval
+npx fasteval weather
+
+# 只运行 fixtures/button
+npx fasteval fixtures/button
+```
+
+<Note>
+  位置参数是 eval ID 前缀，不是 agent 名。agent 用 `--agent` 选择。
+</Note>
+
+## 常用 flags
+
+<ParamField query="--agent" type="string">
+  选择本次运行使用的 agent adapter。会覆盖配置里的 `defaultAgent`。
+
+  ```bash
+  npx fasteval --agent claude-code fixtures/button
+  ```
+</ParamField>
+
+<ParamField query="--sandbox" type="string">
+  选择 sandbox 后端：`docker`、`vercel` 或 `auto`。
+
+  ```bash
+  npx fasteval --agent claude-code --sandbox docker
+  ```
+</ParamField>
+
+<ParamField query="--model" type="string">
+  给 adapter 的模型提示。具体如何使用由 adapter 决定。
+</ParamField>
+
+<ParamField query="--max-concurrency" type="number">
+  设置同时运行的 eval 数量。
+</ParamField>
+
+<ParamField query="--runs" type="number">
+  每个 eval 运行多少次，常用于 pass@N。
+</ParamField>
+
+<ParamField query="--early-exit" type="boolean">
+  某个 eval 的一次 attempt 通过后，停止剩余 attempts。
+</ParamField>
+
+<ParamField query="--timeout-ms" type="number">
+  单个 eval 的超时时间。
+</ParamField>
+
+<ParamField query="--budget" type="number">
+  整次运行的预算上限。
+</ParamField>
+
+<ParamField query="--strict" type="boolean">
+  CI 中推荐使用。让失败更明确地反映到退出码。
+</ParamField>
+
+## `list`
+
+```bash
+npx fasteval list
+```
+
+用于检查 eval 发现、ID 和配置加载是否正常。
+
+## `exp`
+
+```bash
+npx fasteval exp compare-models
+```
+
+运行命名 experiment，用矩阵比较 agents、models 或 flags。
+
+## `view`
+
+```bash
+npx fasteval view
+```
+
+打开本地结果查看器。默认查看最近一次 `.fasteval/` 运行。
+
+## 退出码
+
+CI 中的基本规则：存在失败 gate 或运行失败时，命令应非零退出；全部通过时为 0。需要严格行为时使用 `--strict`。

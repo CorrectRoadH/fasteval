@@ -1,0 +1,111 @@
+---
+title: "fasteval/expect matchers 与自定义断言参考"
+sidebarTitle: "Expect"
+description: "fasteval/expect 参考：includes、equals、matches、similarity、satisfies。可链式调用 .gate() 或 .soft()，也可以用 makeAssertion 构建自定义 matcher。"
+---
+
+`fasteval/expect` 提供一组可组合 matcher，传给 `t.check()` 或 `t.require()`。matcher 会返回一个 `Assertion`，并带有默认严重性：`gate` 或 `soft`。
+
+```ts
+import { includes, equals, matches, similarity, satisfies } from "fasteval/expect";
+```
+
+## 使用方式
+
+```ts
+t.check(t.reply, includes("confirmed"));
+t.check(turn.data, equals({ intent: "refund" }));
+t.require(turn.status, equals("completed"));
+```
+
+| 方法 | 失败时 | 适合 |
+|---|---|---|
+| `t.check` | 记录结果，继续执行 | 大多数断言 |
+| `t.require` | 立即抛出，中断 test | 后续执行没有意义的前置条件 |
+
+## Matchers
+
+### `includes`
+
+```ts
+includes(substring: string | RegExp): Assertion
+```
+
+断言字符串包含指定子串，或匹配正则。
+
+```ts
+t.check(t.reply, includes("Paris"));
+t.check(t.reply, includes(/order #\d+/i));
+```
+
+### `equals`
+
+```ts
+equals(expected: unknown): Assertion
+```
+
+断言深度结构相等，适合 JSON、数组和对象。
+
+```ts
+t.check(turn.data, equals({ intent: "refund" }));
+```
+
+### `matches`
+
+```ts
+matches(pattern: RegExp): Assertion
+```
+
+断言字符串匹配正则。
+
+```ts
+t.check(t.reply, matches(/#[A-Z0-9]{8}/));
+```
+
+### `similarity`
+
+```ts
+similarity(expected: string): Assertion
+```
+
+用于语义或文本相似度检查，通常配合阈值。
+
+```ts
+t.check(t.reply, similarity("The answer explains the refund window").atLeast(0.8));
+```
+
+### `satisfies`
+
+```ts
+satisfies(predicate: (value: unknown) => boolean): Assertion
+```
+
+用自定义谓词检查值。
+
+```ts
+t.check(turn.data, satisfies((value) => Array.isArray(value)));
+```
+
+## gate 和 soft
+
+```ts
+t.check(t.reply, includes("required").gate());
+t.check(t.reply, includes("nice to have").soft());
+```
+
+- `gate()`：失败会让 eval 失败。
+- `soft()`：参与评分，但不一定让 eval 失败。
+
+## 自定义 matcher
+
+```ts
+import { makeAssertion } from "fasteval/expect";
+
+const validEmail = makeAssertion("valid email", (value) => {
+  return typeof value === "string" && value.includes("@") ? 1 : 0;
+});
+
+t.check(t.reply, validEmail());
+```
+
+自定义 matcher 应返回 0 到 1 之间的分数，并给出清晰名称。

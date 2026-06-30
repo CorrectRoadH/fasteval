@@ -1,0 +1,117 @@
+---
+title: "fasteval agents 与 adapters: 连接任意 AI 系统"
+sidebarTitle: "Agents & Adapters"
+description: "了解 fasteval 如何通过命名 agent adapters 连接任意 AI。远程 agent 包装 HTTP 或进程内调用，sandbox agent 在隔离环境中运行 CLI。"
+---
+
+在 fasteval 里，`Agent` 是 core 调用的抽象，`Adapter` 是具体实现。你通过名字选择 agent，adapter 决定怎么调用被测系统、怎么把输出转成标准事件流。
+
+## 两个词，一个边界
+
+- **Agent**：`defineEval({ agent: "..." })`、`defaultAgent` 或 `--agent` 引用的名字。
+- **Adapter**：实现 `send(input, ctx)` 的代码，负责调用 HTTP、函数或 CLI。
+
+## 为什么是 `--agent`，不是 `--url`
+
+CLI 的位置参数只选择“跑哪些 eval”。被测系统的 URL、鉴权、模型和协议都属于 adapter 的私有配置。
+
+```bash
+# 同一份 eval，切换不同 adapter
+npx fasteval --agent local-support-bot support
+npx fasteval --agent prod-support-bot support
+```
+
+## Agent contract
+
+所有 adapter 最终都返回一个 `Turn`：
+
+```ts
+type Turn = {
+  events: StreamEvent[];
+  data?: unknown;
+  status: "completed" | "failed" | "waiting";
+  usage?: Usage;
+};
+```
+
+`events` 是主要事实来源。`message`、`toolCalls` 等便捷字段会从事件流推导。
+
+## capabilities 决定 `t` 上有哪些方法
+
+Adapter 声明能力：
+
+```ts
+capabilities: {
+  conversation: true,
+  toolObservability: true,
+  workspace: false,
+}
+```
+
+这些 flags 控制 TypeScript 层面可见的 `t` 方法。例如没有 `toolObservability` 时，不应该使用 `t.calledTool()`。
+
+## 标准事件流
+
+fasteval 用标准 `StreamEvent[]` 表示 agent 行为，包括文本输出、工具调用、子 agent、命令和错误。每个 adapter 可以从自己的原始 transcript 转换到这个 canonical stream。
+
+<Tip>
+  如果你接的是已有 HTTP 服务，优先在 adapter 里写一个小 mapper，把服务响应转换成标准 events。不要让 eval 文件直接理解服务私有格式。
+</Tip>
+
+## 两种 transport
+
+### `defineAgent`
+
+适合进程内函数和远程 HTTP 服务：
+
+```ts
+import { defineAgent } from "fasteval";
+
+export default defineAgent({
+  name: "support-bot",
+  capabilities: { conversation: true },
+  async send(input, ctx) {
+    const res = await fetch(process.env.SUPPORT_BOT_URL!, {
+      method: "POST",
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    const body = await res.json();
+    return {
+      status: "completed",
+      events: [{ type: "message", role: "assistant", content: body.reply }],
+      data: body,
+    };
+  },
+});
+```
+
+### `defineSandboxAgent`
+
+适合需要文件系统的 coding agent。adapter 拿到 `ctx.sandbox`，在里面安装 CLI、运行命令、读取 transcript。
+
+```ts
+import { defineSandboxAgent } from "fasteval";
+
+export default defineSandboxAgent({
+  name: "my-cli-agent",
+  async send(input, ctx) {
+    await ctx.sandbox.runCommand("my-agent", ["run", input.text]);
+    return { status: "completed", events: [] };
+  },
+});
+```
+
+## 内置 agents
+
+fasteval 内置 `claude-code`、`codex` 和 `bub` 的 sandbox adapters。自定义 adapter 用 `defineConfig({ agents: [...] })` 注册。
+
+## Agent × Sandbox 正交
+
+`--agent` 选择谁来执行任务，`--sandbox` 选择在哪里执行任务。一个 sandbox agent 可以运行在 Docker，也可以运行在云端 sandbox。
+
+## 相关阅读
+
+- [评分](/zh/concepts/scoring) — 标准事件流如何驱动作用域断言。
+- [架构概览](/zh/concepts/overview) — 四层架构和边界。
+- [远程 Agent](/zh/guides/remote-agent) — 编写 HTTP / 进程内 adapter。

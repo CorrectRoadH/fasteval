@@ -1,0 +1,157 @@
+---
+title: "defineEval: 声明、配置并运行 fasteval eval"
+sidebarTitle: "defineEval"
+description: "defineEval 和 defineAgentEval 参考：选项、test context t、Turn 返回值和数据集数组导出。"
+---
+
+`defineEval` 是编写 eval 的主要入口。每个 eval 文件调用一次，传入描述和 `test(t)`，并默认导出结果。
+
+```ts
+import { defineEval } from "fasteval";
+
+export default defineEval({
+  description: "Brooklyn weather query",
+  agent: "my-agent",
+  async test(t) {
+    await t.send("What's the weather like in Brooklyn today?");
+    t.succeeded();
+  },
+});
+```
+
+<Note>
+  不要提供 `id` 或 `name`。fasteval 从文件路径推导 eval ID。
+</Note>
+
+## `defineEval` 选项
+
+<ParamField body="description" type="string">
+  给人看的描述，出现在控制台和报告中。
+</ParamField>
+
+<ParamField body="agent" type="string">
+  当前 eval 使用的 agent 名。省略时使用配置或 CLI 的默认值。
+</ParamField>
+
+<ParamField body="tags" type="string[]">
+  标签，用于 `--tag` 过滤或组织 eval。
+</ParamField>
+
+<ParamField body="judge" type="JudgeConfig">
+  覆盖当前 eval 的 judge 模型配置。
+</ParamField>
+
+<ParamField body="reporters" type="Reporter[]">
+  当前 eval 专用 reporters。
+</ParamField>
+
+<ParamField body="timeoutMs" type="number">
+  覆盖全局超时。
+</ParamField>
+
+<ParamField body="metadata" type="Record<string, unknown>">
+  附加元数据，供报告或外部工具使用。
+</ParamField>
+
+<ParamField body="test" type="(t: TestContext) => Promise<void>" required>
+  eval 主体。你在这里驱动 agent 并声明断言。
+</ParamField>
+
+## Test context: `t`
+
+### 总是可用
+
+<ParamField body="t.send(text)" type="(text: string) => Promise<Turn>">
+  给 agent 发送消息，并返回当前 turn。
+</ParamField>
+
+<ParamField body="t.check(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
+  记录值断言，失败不会立即中断 test。
+</ParamField>
+
+<ParamField body="t.require(value, assertion)" type="(value: unknown, assertion: Assertion) => void">
+  记录前置条件断言，失败会立即中断 test。
+</ParamField>
+
+<ParamField body="t.skip(reason)" type="(reason: string) => void">
+  跳过当前 eval。
+</ParamField>
+
+### 对话能力
+
+<ParamField body="t.reply" type="string">
+  当前 session 中最后一条 assistant 文本回复。
+</ParamField>
+
+<ParamField body="t.newSession()" type="() => void">
+  开启新的独立会话。
+</ParamField>
+
+### 工具可观测性
+
+<ParamField body="t.calledTool(name, opts?)" type="function">
+  断言某个工具被调用。
+</ParamField>
+
+<ParamField body="t.notCalledTool(name, opts?)" type="function">
+  断言某个工具未被调用。
+</ParamField>
+
+<ParamField body="t.event(type, opts?)" type="function">
+  低层事件流断言。
+</ParamField>
+
+### Workspace / sandbox 能力
+
+<ParamField body="t.fileChanged(path)" type="function">
+  断言文件被修改。
+</ParamField>
+
+<ParamField body="t.testsPassed()" type="function">
+  断言 sandbox 验证测试通过。
+</ParamField>
+
+## Judge 断言
+
+```ts
+t.judge.factuality(expected, { on: t.reply }).atLeast(0.8);
+t.judge.closedQA(question, { on: t.reply }).atLeast(0.7);
+t.judge.score(rubric, { on: t.reply }).atLeast(0.75);
+```
+
+## `Turn` 返回类型
+
+<ResponseField name="events" type="StreamEvent[]">
+  标准事件流。
+</ResponseField>
+
+<ResponseField name="data" type="unknown | undefined">
+  结构化输出。
+</ResponseField>
+
+<ResponseField name="status" type='"completed" | "failed" | "waiting"'>
+  当前 turn 状态。
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  assistant 文本回复。
+</ResponseField>
+
+<ResponseField name="toolCalls" type="ToolCall[]">
+  当前 turn 的工具调用。
+</ResponseField>
+
+## 数据集导出
+
+```ts
+export default rows.map((row) =>
+  defineEval({
+    description: row.task,
+    async test(t) {
+      await t.send(row.prompt);
+    },
+  }),
+);
+```
+
+数组导出会生成稳定 ID：`file/0000`、`file/0001` 等。

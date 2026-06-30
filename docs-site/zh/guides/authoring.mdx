@@ -1,0 +1,125 @@
+---
+title: "编写 eval: 单轮、多轮和数据集模式"
+sidebarTitle: "编写 eval"
+description: "学习如何用 defineEval 编写 fasteval eval，包括单轮断言、多轮对话、数据集扇出和 sandbox fixtures。"
+---
+
+每个 fasteval eval 都是一个 TypeScript 文件，默认导出 `defineEval(...)`。核心原则是：**路径即身份**、**一个文件一个 eval**、**线性书写并就地断言**。
+
+## `defineEval` 的形状
+
+```ts
+import { defineEval } from "fasteval";
+
+export default defineEval({
+  description?: string;
+  agent?: string;
+  tags?: string[];
+  judge?: JudgeConfig;
+  reporters?: Reporter[];
+  timeoutMs?: number;
+  metadata?: Record<string, unknown>;
+  async test(t) { /* interactions + assertions */ },
+});
+```
+
+<Warning>
+  不要设置 `id` 或 `name`。`evals/weather/brooklyn.eval.ts` 会自动变成 ID `weather/brooklyn`。
+</Warning>
+
+## 单轮 eval
+
+```ts
+import { defineEval } from "fasteval";
+import { includes } from "fasteval/expect";
+
+export default defineEval({
+  description: "Brooklyn weather query",
+  async test(t) {
+    await t.send("What's the weather like in Brooklyn today?");
+    t.succeeded();
+    t.calledTool("get_weather", { input: { city: "Brooklyn" }, count: 1 });
+    t.check(t.reply, includes("sunny"));
+  },
+});
+```
+
+`t.send()` 驱动一次交互，`t.succeeded()` 和 `t.calledTool()` 是作用域断言，`t.check()` 是立即记录的值断言。
+
+### `Turn` 对象
+
+| 属性 | 说明 |
+|---|---|
+| `turn.events` | 标准事件流，主要事实来源 |
+| `turn.data` | 结构化输出 |
+| `turn.status` | `"completed"`、`"failed"` 或 `"waiting"` |
+| `turn.usage` | token / cost 等 usage |
+| `turn.message` | assistant 文本回复 |
+| `turn.toolCalls` | 本轮工具调用 |
+
+## 多轮 eval
+
+```ts
+export default defineEval({
+  description: "Draft an email, then send it on confirmation",
+  async test(t) {
+    const draft = await t.send("Draft a follow-up email.");
+    draft.expectOk();
+    t.check(draft.message, includes("Best"));
+
+    await t.send("Looks good, send it.");
+    t.calledTool("send_email");
+  },
+});
+```
+
+需要并行独立会话时，用 `t.newSession()`。
+
+## 数据集扇出
+
+一个文件可以导出 eval 数组：
+
+```ts
+export default rows.map((row) =>
+  defineEval({
+    description: row.task,
+    async test(t) {
+      await t.send(row.prompt);
+      t.check(t.reply, equals(row.expected));
+    },
+  }),
+);
+```
+
+生成 ID 为 `sql/0000`、`sql/0001` 等。详见 [数据集](/zh/guides/dataset-fanout)。
+
+## Sandbox fixtures
+
+Coding-agent eval 可以用目录约定：
+
+```text
+evals/fixtures/create-button/
+├─ PROMPT.md
+├─ EVAL.ts
+├─ package.json
+└─ src/
+```
+
+`PROMPT.md` 给 agent 看，`EVAL.ts` 只在验证阶段出现。详见 [Fixtures](/zh/guides/fixtures)。
+
+## 命名约定
+
+<CardGroup cols={2}>
+  <Card title="文件名" icon="file">
+    只有 `.eval.ts` 会被 runner 发现。
+  </Card>
+  <Card title="目录分组" icon="folder">
+    `evals/billing/refund.eval.ts` 的 ID 是 `billing/refund`。
+  </Card>
+  <Card title="数据集" icon="database">
+    适合大量结构相同、输入不同的 case。
+  </Card>
+  <Card title="Fixtures" icon="box">
+    适合 coding agent，需要真实文件系统和验证测试。
+  </Card>
+</CardGroup>

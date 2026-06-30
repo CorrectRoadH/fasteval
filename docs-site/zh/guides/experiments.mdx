@@ -1,0 +1,56 @@
+---
+title: "Experiments: 用运行矩阵比较 agents 和 models"
+sidebarTitle: "Experiments"
+description: "使用 fasteval experiments 让同一批 eval 横跨多个 agents、models 和 feature flags，比较 pass rate、成本和延迟。"
+---
+
+Experiment 用于比较多组运行配置。典型问题包括：Claude Code 和 Codex 谁在同一批 fixture 上 pass rate 更高？某个 prompt 改动是否降低成本？不同模型的延迟和质量如何取舍？
+
+## 基本形状
+
+Experiment 文件通常放在 `experiments/` 目录中，定义一组运行矩阵：
+
+```ts
+export default {
+  name: "compare-models",
+  matrix: [
+    { agent: "claude-code", model: "claude-sonnet-4-5" },
+    { agent: "codex", model: "gpt-5.1-codex" },
+  ],
+  evals: ["fixtures/button"],
+};
+```
+
+```bash
+npx fasteval exp compare-models
+```
+
+## 适合比较什么
+
+- 不同 agent adapters。
+- 不同模型。
+- 不同 prompts 或 feature flags。
+- 不同 sandbox 后端。
+- 同一任务的 pass@N。
+
+## 读结果
+
+Experiment 输出通常按 `(agent, model, eval)` 维度展示：
+
+```text
+fixtures/button   claude-code   pass@5 = 4/5 (80%)   mean 34s
+fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s
+```
+
+除了 pass rate，还应该看平均耗时、token、成本和失败类型。
+
+## 设计 experiment 的建议
+
+- 保持 eval 集合稳定，避免比较时混入新变量。
+- 每个 cell 跑多个 attempts，尤其是非确定性 coding agent。
+- 把预算和并发写清楚。
+- 对“失败原因”做归类，不只看总分。
+
+## 与普通运行的关系
+
+普通 `npx fasteval` 关注“这一批 eval 是否通过”；experiment 关注“多组配置谁更好”。两者使用同一套 eval、agent adapter、scoring 和 artifacts。

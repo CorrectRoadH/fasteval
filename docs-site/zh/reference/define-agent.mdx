@@ -1,0 +1,134 @@
+---
+title: "defineAgent 和 defineSandboxAgent: adapter 参考"
+sidebarTitle: "defineAgent"
+description: "defineAgent 和 defineSandboxAgent 参考：AgentContext、Sandbox 接口、StreamEvent 类型和共享 sandbox helpers。"
+---
+
+每个 fasteval agent 都是一个 adapter：一段知道如何驱动特定 backend，并把输出转成标准事件流的代码。runner 只调用 `agent.send(input, ctx)`。
+
+## `defineAgent`
+
+用于进程内函数和 HTTP 服务：
+
+```ts
+import { defineAgent } from "fasteval";
+```
+
+<ParamField body="name" type="string" required>
+  agent 唯一名字。可在 `defineEval({ agent })`、`defaultAgent` 和 `--agent` 中引用。
+</ParamField>
+
+<ParamField body="capabilities" type="AgentCapabilities">
+  声明 agent 能力。runner 据此决定 `t` 上哪些方法可用。
+
+  <ParamField body="conversation" type="boolean">
+    支持多轮会话，启用 `t.reply` 和 `t.newSession()`。
+  </ParamField>
+
+  <ParamField body="toolObservability" type="boolean">
+    产生工具或动作事件，启用 `t.calledTool()` 等断言。
+  </ParamField>
+
+  <ParamField body="workspace" type="boolean">
+    能操作文件系统，启用 `t.fileChanged()`、`t.testsPassed()` 等断言。
+  </ParamField>
+</ParamField>
+
+<ParamField body="send" type="(input: TurnInput, ctx: AgentContext) => Promise<Turn>" required>
+  驱动 agent 的核心函数。必须返回标准 `Turn`。
+</ParamField>
+
+## `input`
+
+<ResponseField name="text" type="string">
+  当前 `t.send(...)` 传入的文本。
+</ResponseField>
+
+## `ctx`
+
+<ResponseField name="signal" type="AbortSignal">
+  用于超时和取消。
+</ResponseField>
+
+<ResponseField name="model" type="string | undefined">
+  CLI 或配置传入的模型。
+</ResponseField>
+
+<ResponseField name="flags" type="Readonly<Record<string, unknown>>">
+  运行时 flags。
+</ResponseField>
+
+<ResponseField name="session" type="{ id?: string; isNew: boolean }">
+  当前会话信息。
+</ResponseField>
+
+<ResponseField name="log" type="(msg: string) => void">
+  向运行日志写消息。
+</ResponseField>
+
+## 进程内示例
+
+```ts
+export default defineAgent({
+  name: "echo",
+  capabilities: { conversation: true },
+  async send(input) {
+    return {
+      status: "completed",
+      events: [{ type: "message", role: "assistant", content: input.text }],
+    };
+  },
+});
+```
+
+## `defineSandboxAgent`
+
+用于 coding agent CLI。`ctx.sandbox` 是当前隔离环境的句柄：
+
+<ResponseField name="runCommand(cmd, args?, opts?)" type="function">
+  运行命令。
+</ResponseField>
+
+<ResponseField name="runShell(script, opts?)" type="function">
+  运行 shell 脚本。
+</ResponseField>
+
+<ResponseField name="readFile(path)" type="function">
+  读取 sandbox 内文件。
+</ResponseField>
+
+<ResponseField name="writeFiles(files)" type="function">
+  写入文件。
+</ResponseField>
+
+<ResponseField name="stop()" type="function">
+  停止 sandbox。
+</ResponseField>
+
+```ts
+import { defineSandboxAgent } from "fasteval";
+
+export default defineSandboxAgent({
+  name: "my-cli-agent",
+  async send(input, ctx) {
+    await ctx.sandbox.runCommand("my-agent", ["run", input.text]);
+    return { status: "completed", events: [] };
+  },
+});
+```
+
+## 注册
+
+```ts
+import { defineConfig } from "fasteval";
+import echo from "./agents/echo";
+
+export default defineConfig({
+  agents: [echo],
+  defaultAgent: "echo",
+});
+```
+
+## ctx 与 t
+
+`ctx` 是 adapter 侧看到的运行上下文；`t` 是 eval 作者看到的测试上下文。两者使用同一批运行数据，但职责不同。

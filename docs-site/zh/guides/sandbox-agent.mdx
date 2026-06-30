@@ -1,0 +1,97 @@
+---
+title: "Sandbox agents: 评估 Claude Code、Codex 和 bub"
+sidebarTitle: "Sandbox Agent"
+description: "使用 fasteval 内置 agents 或自定义 adapter，在 Docker 或云端 sandbox 中运行 coding-agent CLI。"
+---
+
+Sandbox agent 会在隔离环境中启动 coding-agent CLI，给它 workspace 和任务，让它自由修改文件、运行命令，然后收集 transcript、diff 和测试结果。
+
+## 内置 sandbox agents
+
+<CardGroup cols={3}>
+  <Card title="claude-code" icon="code">
+    运行 Anthropic Claude Code CLI，需要 `ANTHROPIC_API_KEY`。
+  </Card>
+  <Card title="codex" icon="terminal">
+    运行 OpenAI Codex CLI，需要 `OPENAI_API_KEY`。
+  </Card>
+  <Card title="bub" icon="robot">
+    运行 bub coding agent，鉴权遵循 bub CLI 自身约定。
+  </Card>
+</CardGroup>
+
+## 运行内置 agent
+
+```shell
+export ANTHROPIC_API_KEY=sk-ant-...
+npx fasteval --agent claude-code --sandbox docker fixtures/button
+
+npx fasteval --agent claude-code --runs 10 --early-exit fixtures/button
+```
+
+<Note>
+  如果 Docker 是默认后端，`--sandbox docker` 可以省略。`--sandbox auto` 会根据环境变量选择云端或 Docker。
+</Note>
+
+## agent 环境变量
+
+| Agent | 必需变量 |
+|---|---|
+| `claude-code` | `ANTHROPIC_API_KEY` |
+| `codex` | `OPENAI_API_KEY` |
+| `bub` | 遵循 bub CLI 鉴权 |
+
+## 工作流程
+
+```text
+createSandbox
+  → uploadFiles(workspaceFiles)
+  → git init && git commit
+  → hooks.sandbox.setup?
+  → npm install
+  → adapter.send(input, ctx)
+  → uploadFiles(testFiles)
+  → runValidation()
+  → collectGeneratedFiles()
+  → hooks.sandbox.teardown?
+  → sandbox.stop()
+```
+
+`EVAL.ts` 在 agent 执行阶段不可见，验证阶段才上传。
+
+## 自定义 sandbox agent
+
+```ts
+import { defineSandboxAgent } from "fasteval";
+
+export default defineSandboxAgent({
+  name: "my-agent",
+  async send(input, ctx) {
+    await ctx.sandbox.runCommand("my-agent", ["run", input.text]);
+    const transcript = await ctx.sandbox.readFile("transcript.jsonl");
+    return {
+      status: "completed",
+      events: parseTranscript(transcript),
+    };
+  },
+});
+```
+
+## `ctx.model` 与 `ctx.flags`
+
+CLI 传入的模型和自定义 flags 会出现在 adapter context 中。adapter 可以决定如何把它们转成 CLI 参数或 HTTP payload。
+
+## 注册自定义 agent
+
+```ts
+import { defineConfig } from "fasteval";
+import myAgent from "./agents/my-agent";
+
+export default defineConfig({
+  agents: [myAgent],
+});
+```
+
+<Warning>
+  不要在 core runner 里写 agent-specific 分支。差异行为应该放进 adapter。
+</Warning>

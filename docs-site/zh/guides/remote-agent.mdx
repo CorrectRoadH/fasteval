@@ -1,0 +1,111 @@
+---
+title: "把远程或进程内 agent 接到 fasteval"
+sidebarTitle: "远程 Agent"
+description: "用 defineAgent 包装任意函数或 HTTP 服务为 fasteval agent，把响应映射到标准事件流，并按名字注册。"
+---
+
+`defineAgent` 用于连接不需要 sandbox 的被测对象：进程内函数、本地服务、远程 HTTP endpoint、WebSocket agent 或任何自定义框架。
+
+## 何时使用 `defineAgent`
+
+<CardGroup cols={2}>
+  <Card title="进程内函数" icon="bolt">
+    直接调用 TypeScript 函数或 SDK，适合低延迟、无网络的 eval。
+  </Card>
+  <Card title="远程 HTTP 服务" icon="globe">
+    对已部署服务发请求，评估真实线上或 staging 行为。
+  </Card>
+</CardGroup>
+
+## `defineAgent` 形状
+
+```ts
+import { defineAgent } from "fasteval";
+
+export default defineAgent({
+  name: "my-agent",
+  capabilities: {
+    conversation: true,
+    toolObservability: true,
+  },
+  async send(input, ctx) {
+    return {
+      status: "completed",
+      events: [],
+    };
+  },
+});
+```
+
+## 进程内示例
+
+```ts
+export default defineAgent({
+  name: "classifier",
+  capabilities: { conversation: true },
+  async send(input) {
+    const intent = classify(input.text);
+    return {
+      status: "completed",
+      data: { intent },
+      events: [{ type: "message", role: "assistant", content: intent }],
+    };
+  },
+});
+```
+
+## HTTP 示例
+
+```ts
+export default defineAgent({
+  name: "support-api",
+  capabilities: { conversation: true, toolObservability: true },
+  async send(input, ctx) {
+    const res = await fetch(process.env.SUPPORT_API_URL!, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: input.text }),
+      signal: ctx.signal,
+    });
+    const body = await res.json();
+    return {
+      status: "completed",
+      data: body,
+      events: toStreamEvents(body),
+    };
+  },
+});
+```
+
+## 映射到标准事件流
+
+Adapter 的关键工作是把你的私有响应格式转成 `StreamEvent[]`。最小可用事件通常是一条 assistant message：
+
+```ts
+function toStreamEvents(body: { reply: string }) {
+  return [{ type: "message", role: "assistant", content: body.reply }];
+}
+```
+
+如果服务返回工具调用，也应该映射到 action/tool 相关事件，这样 `t.calledTool()` 才能工作。
+
+## 注册 agent
+
+```ts
+import { defineConfig } from "fasteval";
+import supportApi from "./agents/support-api";
+
+export default defineConfig({
+  agents: [supportApi],
+  defaultAgent: "support-api",
+});
+```
+
+## 本地和生产切换
+
+```bash
+SUPPORT_API_URL=http://localhost:3000/api/agent npx fasteval support
+SUPPORT_API_URL=https://api.example.com/agent npx fasteval support
+```
+
+不要把 URL 放进 CLI 位置参数；位置参数只用于过滤 eval ID。

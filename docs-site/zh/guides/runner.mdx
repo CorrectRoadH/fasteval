@@ -1,0 +1,80 @@
+---
+title: "fasteval runner 如何调度和执行 eval"
+sidebarTitle: "Runner"
+description: "fasteval runner 发现 eval，用有界并发调度，缓存结果，重试脆弱基础设施，并执行预算保护。"
+---
+
+Runner 是把 eval 文件变成一次实际运行的执行引擎。它负责发现、过滤、调度、缓存、attempt、reporters 和 artifact 输出。
+
+## 发现
+
+runner 会读取 `evals/` 下的：
+
+- `*.eval.ts` 文件
+- 导出 eval 数组的数据集文件
+- 包含 `PROMPT.md` 和 `EVAL.ts` 的 fixture 目录
+
+```bash
+npx fasteval list
+```
+
+`list` 只发现和打印 ID，不执行 eval。
+
+## 过滤
+
+位置参数是 eval ID 前缀：
+
+```bash
+npx fasteval
+npx fasteval weather
+npx fasteval fixtures/button
+```
+
+不要把 agent 名放进位置参数。agent 用 `--agent` 选择。
+
+## 并发
+
+```bash
+npx fasteval --max-concurrency 8
+```
+
+远程 HTTP agent 可以用更高并发；本地 Docker sandbox 通常需要更低并发，避免 CPU、内存和磁盘竞争。
+
+## runs 与 early-exit
+
+```bash
+npx fasteval --runs 5 --early-exit fixtures/button
+```
+
+`runs` 用于测 pass rate。`early-exit` 会在某个 attempt 通过后停止同一 eval 的剩余尝试。
+
+## 缓存
+
+fasteval 可以根据输入、配置和相关文件 fingerprint 跳过已通过结果。缓存适合加速迭代，但如果你在调试非确定性行为，应该明确关闭或清理相关缓存。
+
+## 超时和预算
+
+```bash
+npx fasteval --timeout-ms 300000 --budget 5
+```
+
+超时保护单个 eval，预算保护整次运行成本。
+
+## Reporter
+
+runner 在 eval 完成后把结果交给 reporters：
+
+- console reporter 提供实时反馈。
+- JSON artifacts 用于后续分析。
+- JUnit reporter 适合 CI。
+
+## 输出目录
+
+每次运行会写入 `.fasteval/<timestamp>/`，包括 summary、per-eval result、event stream、transcript、diff 和测试输出。
+
+## 推荐调试流程
+
+1. 先跑 `npx fasteval list` 确认发现结果。
+2. 用 ID 前缀缩小到一个 eval。
+3. 失败后运行 `npx fasteval view` 查看 transcript 和 diff。
+4. 再扩大到完整 suite 或 experiment。

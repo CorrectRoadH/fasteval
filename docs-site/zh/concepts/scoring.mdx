@@ -1,0 +1,127 @@
+---
+title: "fasteval scoring: 断言、judge 和 verdict"
+sidebarTitle: "Scoring"
+description: "fasteval 的五种评分机制：值断言、作用域断言、LLM-as-judge、test-as-scoring 和效率检查，以及 gate / soft 规则。"
+---
+
+fasteval 的评分目标是把 agent 行为变成可解释、可比较的结果。你可以混合使用精确断言、事件流断言、LLM judge、沙箱测试和成本约束。
+
+## 五种评分机制
+
+<CardGroup cols={2}>
+  <Card title="1. 值断言" icon="equals">
+    `t.check(value, matcher)`，适合文本、JSON 和结构化输出。
+  </Card>
+  <Card title="2. 作用域断言" icon="crosshairs">
+    `t.succeeded()`、`t.calledTool()`、`t.fileChanged()` 等，运行结束后统一评估。
+  </Card>
+  <Card title="3. LLM-as-judge" icon="gavel">
+    用 judge 模型评估事实性、总结质量或 rubric 分数。
+  </Card>
+  <Card title="4. Test-as-scoring" icon="flask">
+    在 sandbox 里运行 `EVAL.ts`、Vitest 或项目脚本。
+  </Card>
+  <Card title="5. 效率断言" icon="gauge">
+    限制 token、成本和其他 usage 指标。
+  </Card>
+</CardGroup>
+
+## gate 与 soft
+
+<Tabs>
+  <Tab title="gate">
+    gate 是硬门槛。任何 gate 失败都会让 eval 的 verdict 变成 `failed`。
+  </Tab>
+  <Tab title="soft">
+    soft 用于评分和排序。它不会直接让 eval 失败，但会影响最终分数。
+  </Tab>
+</Tabs>
+
+## Verdict 规则
+
+<CardGroup cols={2}>
+  <Card title="passed" icon="circle-check" color="#22c55e">
+    所有 gate 通过，且没有运行失败。
+  </Card>
+  <Card title="failed" icon="circle-xmark" color="#ef4444">
+    任一 gate 失败、超时、adapter 失败或测试失败。
+  </Card>
+  <Card title="scored" icon="chart-bar" color="#f59e0b">
+    运行完成，但结果主要由 soft 分数表达。
+  </Card>
+  <Card title="skipped" icon="forward" color="#6b7280">
+    eval 被跳过。
+  </Card>
+</CardGroup>
+
+## 1. 值断言
+
+`fasteval/expect` 提供可组合 matcher：
+
+```ts
+import { includes, equals, matches, similarity } from "fasteval/expect";
+
+t.check(t.reply, includes("confirmed"));
+t.check(turn.data, equals({ intent: "refund" }));
+t.check(t.reply, matches(/order #\d+/i));
+t.check(t.reply, similarity("The answer should mention Paris").atLeast(0.8));
+```
+
+## 2. 作用域断言
+
+作用域断言记录“整次运行”应该满足的事实：
+
+```ts
+t.succeeded();
+t.calledTool("get_weather", { count: 1 });
+t.notCalledTool("delete_user");
+t.toolOrder(["search", "summarize"]);
+t.fileChanged("src/components/Button.tsx");
+t.testsPassed();
+```
+
+<Warning>
+  作用域断言通常在 `test()` 结束后统一评估。不要把它当成立即返回布尔值的函数。
+</Warning>
+
+## 3. LLM-as-judge
+
+Judge 用于无法精确匹配的语义质量：
+
+```ts
+t.judge.closedQA("回答是否准确说明了退款政策?", { on: t.reply }).atLeast(0.7);
+t.judge.summarizes(sourceText, { on: t.reply }).atLeast(0.8);
+t.judge.score("礼貌、具体、没有编造事实", { on: t.reply }).atLeast(0.75);
+```
+
+judge 模型可以在 `defineConfig`、单个 eval 或单次 judge 调用上配置。
+
+## 4. Test-as-scoring
+
+Sandbox fixture 通过 `EVAL.ts` 验证 agent 改出的代码：
+
+```ts
+import { test, expect } from "vitest";
+import { existsSync } from "node:fs";
+
+test("Button exists", () => {
+  expect(existsSync("src/components/Button.tsx")).toBe(true);
+});
+```
+
+测试输出会进入 `.fasteval/<run>/.../test-output.txt`。
+
+## 5. 效率和成本
+
+```ts
+t.maxTokens(50_000);
+t.maxCost(0.25);
+```
+
+这些断言适合防止 agent 通过过度调用模型或工具“堆”出结果。
+
+## 相关阅读
+
+- [Evals](/zh/concepts/evals) — 断言如何进入生命周期和 verdict。
+- [Agents & Adapters](/zh/concepts/agents-adapters) — 标准事件流由哪里产生。
+- [评分指南](/zh/guides/scoring-guide) — 更完整的写法和取舍。
