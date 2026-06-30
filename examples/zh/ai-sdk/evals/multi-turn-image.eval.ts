@@ -14,8 +14,9 @@ export default defineEval({
     (await t.send("中间那个形状是什么颜色的？")).expectOk();
 
     await t.group("三轮都正常收发", () => {
+      // 每轮 send 已各自 .expectOk();succeeded() 再确认整次运行没失败 / 没卡在 HITL。
+      // (注:事件流现在也含 user 消息,所以不要再用 event("message",{count}) 数"轮数"。)
       t.succeeded();
-      t.event("message", { count: 3 });
     });
 
     await t.group("第一轮识别出图片内容", () => {
