@@ -7,7 +7,6 @@ const SYMBOL: Record<string, string> = {
   passed: "✓",
   failed: "✗",
   errored: "!",
-  scored: "~",
   skipped: "○",
 };
 
@@ -73,7 +72,6 @@ export function Console(): Reporter {
         t("report.summary.passed", { count: summary.passed }),
         t("report.summary.failed", { count: summary.failed }),
         ...(summary.errored > 0 ? [t("report.summary.errored", { count: summary.errored })] : []),
-        t("report.summary.scored", { count: summary.scored }),
         t("report.summary.skipped", { count: summary.skipped }),
       ];
       process.stdout.write(t("report.result", {
@@ -91,7 +89,6 @@ function formatOutcome(outcome: string): string {
     case "passed": return t("report.passed");
     case "failed": return t("report.failed");
     case "errored": return t("report.errored");
-    case "scored": return t("report.scored");
     case "skipped": return t("report.skipped");
     default: return outcome;
   }

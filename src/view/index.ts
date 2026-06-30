@@ -34,7 +34,6 @@ interface LeaderboardRow {
   passed: number;
   failed: number;
   errored: number;
-  scored: number;
   skipped: number;
   passRate: number;
   avgDurationMs: number;
@@ -47,9 +46,8 @@ interface LeaderboardRow {
 
 const VERDICT_ORDER: Record<Verdict, number> = {
   failed: 0,
-  scored: 1,
-  skipped: 2,
-  passed: 3,
+  skipped: 1,
+  passed: 2,
 };
 
 const TEMPLATE_PLACEHOLDERS = {
@@ -283,9 +281,8 @@ function aggregateRows(loaded: LoadedSummary[]): LeaderboardRow[] {
       passed: results.filter((r) => resultOutcome(r) === "passed").length,
       failed: results.filter((r) => resultOutcome(r) === "failed").length,
       errored: results.filter((r) => resultOutcome(r) === "errored").length,
-      scored: results.filter((r) => resultOutcome(r) === "scored").length,
       skipped: results.filter((r) => resultOutcome(r) === "skipped").length,
-      passRate: results.length ? results.filter((r) => { const o = resultOutcome(r); return o === "passed" || o === "scored"; }).length / results.length : 0,
+      passRate: results.length ? results.filter((r) => resultOutcome(r) === "passed").length / results.length : 0,
       avgDurationMs: avg(results.map((r) => r.durationMs)),
       usage: sumUsage(results.map((r) => r.usage)),
       estimatedCostUSD: cost,
@@ -302,7 +299,7 @@ function resultOutcome(result: EvalResult): EvalResult["outcome"] {
 
 function summarizeAll(loaded: LoadedSummary[]) {
   const results = loaded.flatMap((s) => s.summary.results);
-  const passed = results.filter((r) => { const o = resultOutcome(r); return o === "passed" || o === "scored"; }).length;
+  const passed = results.filter((r) => resultOutcome(r) === "passed").length;
   return {
     results: results.length,
     passRate: results.length ? passed / results.length : 0,

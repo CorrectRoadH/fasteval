@@ -11,7 +11,6 @@ const OUTCOME_SYM: Record<string, string> = {
   passed: "✓",
   failed: "✗",
   errored: "!",
-  scored: "~",
   skipped: "○",
 };
 
@@ -167,7 +166,6 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
       if (state) {
         state.completed += 1;
         totalCompleted += 1;
-        // 有 gate 失败 → failed 优先;否则 scored 比 passed 优先(不覆盖已有 failed)
         const prev = state.dominantOutcome;
         if (!prev || (prev === "passed" && result.outcome !== "passed")) {
           state.dominantOutcome = result.outcome;
@@ -228,7 +226,6 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
         t("report.summary.passed", { count: summary.passed }),
         t("report.summary.failed", { count: summary.failed }),
         ...(summary.errored > 0 ? [t("report.summary.errored", { count: summary.errored })] : []),
-        t("report.summary.scored", { count: summary.scored }),
         t("report.summary.skipped", { count: summary.skipped }),
       ];
       process.stdout.write(t("report.result", {
@@ -246,7 +243,6 @@ function formatOutcome(outcome: string): string {
     case "passed": return t("report.passed");
     case "failed": return t("report.failed");
     case "errored": return t("report.errored");
-    case "scored": return t("report.scored");
     case "skipped": return t("report.skipped");
     default: return outcome;
   }

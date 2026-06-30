@@ -4,7 +4,7 @@
 //   .fasteval/<run>/
 //     summary.json                         # run 元数据 + 各 result 的判决/usage/断言/引用(瘦身)
 //     <evalId>/<agent>/<model>/a<attempt>/
-//       events.json  trace.json  o11y.json  diff.json
+//       events.json  sources.json  trace.json  o11y.json  diff.json
 // view 读 summary.json 渲染榜单,展开某条 trace 时再按需 fetch 它的 trace.json。
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -19,10 +19,11 @@ function attemptDir(r: EvalResult): string {
   return `${id}/${safe(r.agent)}/${safe(r.model ?? "default")}/a${r.attempt}`;
 }
 
-/** summary.json 用的瘦身结果:去掉大数组(events/trace/o11y/diff),换成目录引用 + 存在标记。 */
+/** summary.json 用的瘦身结果:去掉大数组(events/trace/o11y/diff/sources),换成目录引用 + 存在标记。 */
 function slimResult(r: EvalResult): EvalResult {
-  const { events, o11y, trace, diff, rawTranscript, ...rest } = r;
+  const { events, sources, o11y, trace, diff, rawTranscript, ...rest } = r;
   void events;
+  void sources;
   void o11y;
   void trace;
   void diff;
@@ -32,6 +33,7 @@ function slimResult(r: EvalResult): EvalResult {
     artifactsDir: attemptDir(r),
     hasTrace: !!(trace && trace.length),
     hasEvents: !!(events && events.length),
+    hasSources: !!(sources && sources.length),
   };
 }
 
@@ -56,6 +58,8 @@ export function Artifacts(root = ".fasteval"): Reporter {
       const writes: Promise<unknown>[] = [];
       if (result.events?.length)
         writes.push(writeFile(join(dir, "events.json"), JSON.stringify(result.events), "utf-8"));
+      if (result.sources?.length)
+        writes.push(writeFile(join(dir, "sources.json"), JSON.stringify(result.sources), "utf-8"));
       if (result.trace?.length)
         writes.push(writeFile(join(dir, "trace.json"), JSON.stringify(result.trace), "utf-8"));
       if (result.o11y) writes.push(writeFile(join(dir, "o11y.json"), JSON.stringify(result.o11y), "utf-8"));

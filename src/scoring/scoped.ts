@@ -72,8 +72,9 @@ export function messageIncludes(token: string | RegExp): Spec {
     name: `messageIncludes(${token})`,
     severity: "gate",
     evaluate: (ctx) => {
+      // 只看助手回复——事件流现在也含用户消息(send 内容),扫它会误判。
       const text = ctx.events
-        .filter((e): e is Extract<typeof e, { type: "message" }> => e.type === "message")
+        .filter((e): e is Extract<typeof e, { type: "message" }> => e.type === "message" && e.role === "assistant")
         .map((e) => e.text)
         .join("\n");
       const ok = token instanceof RegExp ? token.test(text) : text.includes(token);

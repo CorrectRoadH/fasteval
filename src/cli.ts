@@ -32,9 +32,8 @@ interface Flags {
   timeout?: number;
   earlyExit?: boolean;
   dry: boolean;
-  strict: boolean;
   quiet: boolean;
-  resume: boolean;
+  fresh: boolean;
   open?: boolean;
   out?: string;
   port?: number;
@@ -42,9 +41,8 @@ interface Flags {
 
 const BOOL_FLAGS = new Set([
   "dry",
-  "strict",
   "quiet",
-  "resume",
+  "fresh",
   "early-exit",
   "no-early-exit",
   "open",
@@ -57,7 +55,7 @@ const BOOL_FLAGS = new Set([
 function parseArgs(argv: string[]): { command: string; positionals: string[]; flags: Flags } {
   if (argv[0] === "--") argv = argv.slice(1);
   const positionals: string[] = [];
-  const flags: Flags = { dry: false, strict: false, quiet: false, resume: false };
+  const flags: Flags = { dry: false, quiet: false, fresh: false };
   let command = "run";
   let i = 0;
 
@@ -90,9 +88,8 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
       }
       if (BOOL_FLAGS.has(name)) {
         if (name === "dry") flags.dry = true;
-        else if (name === "strict") flags.strict = true;
         else if (name === "quiet") flags.quiet = true;
-        else if (name === "resume") flags.resume = true;
+        else if (name === "fresh") flags.fresh = true;
         continue;
       }
       const value = argv[++i];
@@ -377,7 +374,7 @@ async function main(): Promise<void> {
   const sandboxRecs = agentRuns.map((r) => sandboxRecommendedConcurrency(r.sandbox));
   const sandboxDefaultConcurrency = sandboxRecs.length > 0 ? Math.min(...sandboxRecs) : 10;
 
-  const priorResults = flags.resume ? await loadMostRecentResults(join(cwd, ".fasteval")) : undefined;
+  const priorResults = flags.fresh ? undefined : await loadMostRecentResults(join(cwd, ".fasteval"));
 
   const summary = await runEvals({
     config,
@@ -394,7 +391,7 @@ async function main(): Promise<void> {
   // 跑顺利时登记表已空,是 no-op。
   await stopAllSandboxes();
 
-  const failedExit = summary.failed > 0 || summary.errored > 0 || (flags.strict && summary.scored > 0);
+  const failedExit = summary.failed > 0 || summary.errored > 0;
   process.exit(failedExit ? 1 : 0);
 }
 

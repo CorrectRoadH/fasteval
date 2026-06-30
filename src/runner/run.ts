@@ -3,6 +3,7 @@
 // 采 diff→跑脚本→评分→判决→停沙箱),adapter 只填「把 agent 跑起来」一段。
 
 import { resolve as resolvePath } from "node:path";
+import { readFile as readSourceFile } from "node:fs/promises";
 import { Effect, Cause, Duration, Exit } from "effect";
 import { createSandbox, sandboxLabel } from "../sandbox/resolve.ts";
 import { createTraceReceiver, type TraceReceiver } from "../o11y/otlp/receiver.ts";
@@ -38,6 +39,8 @@ import type {
   SandboxOption,
   ScoringContext,
   ScriptResult,
+  SourceArtifact,
+  StreamEvent,
   Telemetry,
   TraceSpan,
   Verdict,
@@ -104,20 +107,19 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     }
   }
 
-  // 跨实验结果复用(--resume):找出上次已通过的 (experimentId, evalId) 组合,跳过重跑。
-  // 已通过的结果直接携入本次汇总;失败/报错的正常入队重跑。
-  const priorPassedKeys = new Set<string>();
+  // 跨实验结果复用:上次已跑过且非 errored 的 (experimentId, evalId) 组合直接携入,不重跑。
+  // errored 的重跑;从来没跑过的也进入队列。--fresh 跳过此逻辑。
+  const priorRunKeys = new Set<string>();
   const carriedResults: EvalResult[] = [];
   if (opts.priorResults?.length) {
     for (const r of opts.priorResults) {
       if (!r.experimentId) continue;
-      const priorOutcome: string = r.outcome ?? (r.error !== undefined ? "errored" : r.verdict);
-      if (priorOutcome === "passed" || priorOutcome === "scored") {
-        priorPassedKeys.add(`${r.experimentId}|${r.id}`);
+      if (r.outcome !== "errored") {
+        priorRunKeys.add(`${r.experimentId}|${r.id}`);
       }
     }
     for (const r of opts.priorResults) {
-      if (!r.experimentId || !priorPassedKeys.has(`${r.experimentId}|${r.id}`)) continue;
+      if (!r.experimentId || !priorRunKeys.has(`${r.experimentId}|${r.id}`)) continue;
       // 去掉工件引用:工件文件在旧 run 目录,新 summary 里的相对路径会失效。
       carriedResults.push({ ...r, artifactsDir: undefined, artifactBase: undefined, artifactAbsBase: undefined });
     }
@@ -133,7 +135,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
     const evals = opts.evals.filter((e) => run.evalFilter(e.id));
     for (let i = 0; i < run.runs; i++) {
       for (const evalDef of evals) {
-        if (run.experimentId && priorPassedKeys.has(`${run.experimentId}|${evalDef.id}`)) continue;
+        if (run.experimentId && priorRunKeys.has(`${run.experimentId}|${evalDef.id}`)) continue;
         const key = `${run.agent.name}|${run.model ?? ""}|${evalDef.id}`;
         attempts.push({ evalDef, run, attempt: i, key });
       }
@@ -349,7 +351,7 @@ function summarize(
   startedAt: string,
   durationMs: number,
 ): RunSummary {
-  const counts = { passed: 0, failed: 0, scored: 0, skipped: 0, errored: 0 };
+  const counts = { passed: 0, failed: 0, skipped: 0, errored: 0 };
   let inTok = 0;
   let outTok = 0;
   let cost = 0;
@@ -365,7 +367,6 @@ function summarize(
     completedAt: new Date().toISOString(),
     passed: counts.passed,
     failed: counts.failed,
-    scored: counts.scored,
     skipped: counts.skipped,
     errored: counts.errored,
     durationMs,
@@ -720,6 +721,9 @@ async function runAttemptBody(
     const cost = usage.costUSD;
     if (cost !== undefined) o11y.estimatedCostUSD = cost;
 
+    // 收 test 引用到的 eval 源码(按 send / 断言的 loc 去重),供 view 渲染代码视图。
+    const sources = await collectSources(events, assertions);
+
     return {
       id: evalDef.id,
       experimentId: run.experimentId,
@@ -737,6 +741,7 @@ async function runAttemptBody(
       error,
       skipReason,
       events,
+      sources,
       o11y,
       trace,
       diff,
@@ -806,6 +811,28 @@ function createRemoteSandbox(): Sandbox {
       unavailable("uploadFile");
     },
   };
+}
+
+/**
+ * 收集 test 引用到的 eval 源码:从 send(user message)与断言的 loc 去重出文件集,逐个读回。
+ * loc.file 相对项目根(= 进程 cwd,CLI 从那儿发现 / 跑 eval),所以按 cwd 解析。读不到就跳过。
+ */
+async function collectSources(
+  events: readonly StreamEvent[],
+  assertions: readonly EvalResult["assertions"][number][],
+): Promise<SourceArtifact[]> {
+  const paths = new Set<string>();
+  for (const e of events) if (e.type === "message" && e.loc) paths.add(e.loc.file);
+  for (const a of assertions) if (a.loc) paths.add(a.loc.file);
+  const out: SourceArtifact[] = [];
+  for (const path of paths) {
+    try {
+      out.push({ path, content: await readSourceFile(resolvePath(process.cwd(), path), "utf-8") });
+    } catch {
+      // 源码读不到(路径在沙箱内 / 已删 / 权限)——跳过,view 用 loc 也能降级显示行号。
+    }
+  }
+  return out;
 }
 
 function experimentRunInfo(run: AgentRun): EvalResult["experiment"] {

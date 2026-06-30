@@ -68,7 +68,26 @@ async function callJudge(
     choices?: { message?: { content?: string } }[];
   };
   const content = data.choices?.[0]?.message?.content ?? "";
-  return { score: parseScore(content), detail: content || undefined };
+  return parseJudgeReply(content);
+}
+
+/**
+ * 解析评判回复:优先 JSON {reasoning, score}(detail = 理由,view 展开看 CoT);
+ * 退化到纯数字 / 自由文本时 detail 落原文。
+ */
+function parseJudgeReply(text: string): EvalScore {
+  const json = text.match(/\{[\s\S]*\}/);
+  if (json) {
+    try {
+      const obj = JSON.parse(json[0]) as { score?: unknown; reasoning?: unknown };
+      const reasoning = typeof obj.reasoning === "string" ? obj.reasoning.trim() : undefined;
+      const score = typeof obj.score === "number" ? clamp01(obj.score) : parseScore(text);
+      return { score, detail: reasoning || text || undefined };
+    } catch {
+      // 落到下面的纯文本解析
+    }
+  }
+  return { score: parseScore(text), detail: text || undefined };
 }
 
 /** 从模型回复里抠出 [0,1] 分。优先 JSON {score},否则取第一个数字。 */
@@ -98,7 +117,9 @@ function clamp01(n: number): number {
 }
 
 const SYSTEM_PROMPT =
-  "你是严格的评测裁判。阅读给定材料,按问题/评分标准判断,只输出一个 0 到 1 之间的小数(0=完全不符,1=完全符合),不要任何其它文字。";
+  "你是严格的评测裁判。阅读给定材料,按问题/评分标准判断。先用一两句给出判断理由,再给出一个 " +
+  "0 到 1 之间的小数分数(0=完全不符,1=完全符合)。务必只输出一段 JSON,形如 " +
+  '{"reasoning": "<判断理由>", "score": <0到1的小数>},不要任何额外文字。';
 
 /** 把 diff 里 agent 产出的文件拼成评判材料(截断防爆 token)。 */
 function diffMaterial(ctx: ScoringContext, perFile = 4000, total = 16000): string {

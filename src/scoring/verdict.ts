@@ -9,15 +9,13 @@ export function computeVerdict(input: {
 }): Verdict {
   if (input.error !== undefined) return "failed";
 
-  let demoted = false;
   for (const a of input.assertions) {
     if (a.passed) continue;
     if (a.severity === "gate") return "failed";
-    demoted = true;
   }
 
   if (input.skipReason !== undefined) return "skipped";
-  return demoted ? "scored" : "passed";
+  return "passed";
 }
 
 export function computeOutcome(input: {

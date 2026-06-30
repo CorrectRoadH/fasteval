@@ -2,6 +2,7 @@
 // newSession,并把每轮的标准事件流与用量累加进整次运行(供作用域断言 / o11y)。
 
 import type { Agent, AgentContext, InputFile, Sandbox, StreamEvent, Telemetry, Turn, Usage } from "../types.ts";
+import { captureLoc } from "../source-loc.ts";
 import { t } from "../i18n/index.ts";
 
 /** 一条会话线的可变状态。adapter 读 isNew 决定是否 --resume,写 id 供下轮续接。 */
@@ -49,6 +50,8 @@ export class SessionManager {
   }
 
   async send(session: RunSession, text: string, files?: readonly InputFile[]): Promise<Turn> {
+    // 抓住作者调 t.send / t.sendFile 那一行(view 把回复叠回这一行)。
+    const loc = captureLoc();
     const ctx: AgentContext = {
       signal: this.deps.signal,
       model: this.deps.model,
@@ -70,7 +73,7 @@ export class SessionManager {
     const t0 = Date.now();
 
     session.lastInput = text;
-    this.allEvents.push({ type: "message", role: "user", text });
+    this.allEvents.push({ type: "message", role: "user", text, loc });
     const turn = await this.deps.agent.send({ text, files }, ctx);
 
     this.allEvents.push(...turn.events);

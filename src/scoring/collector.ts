@@ -1,7 +1,8 @@
 // 断言收集器:test 期间记录断言(值级就地、作用域延迟),test 结束后对完整运行
 // 结果(ScoringContext)统一 finalize 成 AssertionResult[],再交判决。
 
-import type { AssertionResult, ScoringContext, Severity } from "../types.ts";
+import type { AssertionResult, ScoringContext, Severity, SourceLoc } from "../types.ts";
+import { captureLoc } from "../source-loc.ts";
 import { t } from "../i18n/index.ts";
 
 export interface EvalScore {
@@ -17,6 +18,8 @@ export interface Spec {
   detail?: string;
   /** 所属分组(t.group 标题,可嵌套用 › 连接)。纯组织用,不影响打分。 */
   group?: string;
+  /** 断言在 eval 源码里的调用点(record 时栈回溯抠出)。 */
+  loc?: SourceLoc;
   evaluate(ctx: ScoringContext): number | EvalScore | Promise<number | EvalScore>;
 }
 
@@ -49,6 +52,7 @@ export class AssertionCollector {
     if (spec.group === undefined && this.groupStack.length > 0) {
       spec.group = this.groupStack.join(" › ");
     }
+    if (spec.loc === undefined) spec.loc = captureLoc();
     this.specs.push(spec);
     const handle: RecordHandle = {
       atLeast(threshold) {
@@ -97,6 +101,7 @@ export class AssertionCollector {
         passed: computePassed(spec.severity, spec.threshold, score),
         detail,
         group: spec.group,
+        loc: spec.loc,
       });
     }
     return out;

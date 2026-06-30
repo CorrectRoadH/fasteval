@@ -13,6 +13,22 @@ export type JsonValue =
 
 export type Severity = "gate" | "soft";
 
+/**
+ * eval 源码里一次调用的位置(`t.send` / 各断言),运行期从栈回溯抠出来(见 src/source-loc.ts)。
+ * view 据此把运行结果叠回真实源码行(github-diff 式代码视图)。`file` 为相对项目根的路径。
+ */
+export interface SourceLoc {
+  file: string;
+  line: number;
+  column?: number;
+}
+
+/** 随结果回传的一份 eval 源码(相对项目根的路径 + 文本),供 view 渲染代码视图。 */
+export interface SourceArtifact {
+  path: string;
+  content: string;
+}
+
 /** 一次运行的 token 用量(沙箱型从 transcript 抠,remote 由 send 返回)。 */
 export interface Usage {
   inputTokens: number;
@@ -50,7 +66,7 @@ export interface InputRequest {
  * 各 agent 五花八门的原始 transcript 映射成 StreamEvent[];映射完,整套断言免费。
  */
 export type StreamEvent =
-  | { type: "message"; role: "assistant" | "user"; text: string }
+  | { type: "message"; role: "assistant" | "user"; text: string; loc?: SourceLoc }
   | { type: "action.called"; callId: string; name: string; input: JsonValue; tool?: ToolName }
   | {
       type: "action.result";
@@ -486,6 +502,8 @@ export interface AssertionResult {
   detail?: string;
   /** 所属分组(t.group 标题)。纯报告用,不影响 passed/score。 */
   group?: string;
+  /** 断言在 eval 源码里的调用点(栈回溯抠出);view 把判决叠回这一行。 */
+  loc?: SourceLoc;
 }
 
 /** eval 作者拿到的可链式句柄(t.judge.agent(...).atLeast(0.7))。 */
@@ -517,14 +535,14 @@ export interface DiffData {
   deletedFiles: string[];
 }
 
-export type Verdict = "passed" | "failed" | "scored" | "skipped";
+export type Verdict = "passed" | "failed" | "skipped";
 
 /**
  * 面向报告 / CI 的互斥结果分类。
  * `verdict` 保留评分语义:执行错误为了兼容仍折叠为 failed。
  * `outcome` 则把“断言没过”和“环境/执行错误”拆开。
  */
-export type ResultOutcome = "passed" | "failed" | "errored" | "scored" | "skipped";
+export type ResultOutcome = "passed" | "failed" | "errored" | "skipped";
 
 // ───────────────────────── Judge ─────────────────────────
 
@@ -566,6 +584,8 @@ export interface EvalResult {
   error?: string;
   skipReason?: string;
   events?: StreamEvent[];
+  /** test 引用到的 eval 源码(按 loc 收集),供 view 渲染 github-diff 式代码视图。 */
+  sources?: SourceArtifact[];
   o11y?: O11ySummary;
   /** agent 经 OpenTelemetry 导出的运行追踪(有 tracing 能力且收到 span 时)。 */
   trace?: TraceSpan[];
@@ -580,6 +600,7 @@ export interface EvalResult {
   artifactAbsBase?: string;
   hasTrace?: boolean;
   hasEvents?: boolean;
+  hasSources?: boolean;
 }
 
 export interface RunSummary {
@@ -588,9 +609,8 @@ export interface RunSummary {
   startedAt: string;
   completedAt: string;
   passed: number;
-  /** 断言 / 评分不通过的数量;不包含 errored。 */
+  /** 断言不通过的数量;不包含 errored。 */
   failed: number;
-  scored: number;
   skipped: number;
   /** 环境、超时、adapter、agent runtime 等执行错误数量;与 failed 互斥。 */
   errored: number;
