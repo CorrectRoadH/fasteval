@@ -61,7 +61,7 @@ CLI 只有两类输入：位置参数选择“跑哪些 eval”（eval id 前缀
 
 ## 记录问题的规范
 
-发现基础设施 bug、API 限制或行为反直觉的地方时，记入 memory（`~/.claude/projects/<项目路径>/memory/`），不写进本文件。
+发现基础设施 bug、API 限制或行为反直觉的地方时，记入 `memory/`（项目根目录下的 `memory/` 文件夹），不写进本文件。
 
 一条有效的 memory 条目包含三个部分：
 
