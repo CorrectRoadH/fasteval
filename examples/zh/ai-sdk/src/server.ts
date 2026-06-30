@@ -2,8 +2,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { handleAiSdkTurn } from "./ai-sdk-runtime.ts";
+import { handleAiSdkTurn, streamAiSdkTurn } from "./ai-sdk-runtime.ts";
 import { startAppTrace } from "./app-observability.ts";
+import { MODELS } from "./models.ts";
 import type { AgentRequest } from "./protocol.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,42 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
 
+  // 模型注册表 — 前端选择器用。
+  if (req.method === "GET" && req.url === "/api/models") {
+    json(res, 200, { models: MODELS });
+    return;
+  }
+
+  // 流式端点 — UI 用，SSE 逐 token 推送。
+  if (req.method === "POST" && req.url === "/api/chat") {
+    const body = await readJson(req);
+    const request = parseAgentRequest(body);
+    res.writeHead(200, {
+      ...corsHeaders(),
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      "connection": "keep-alive",
+    });
+
+    const signal = abortSignalFor(req);
+    try {
+      const response = await streamAiSdkTurn(
+        request,
+        signal,
+        (delta) => res.write(`data: ${JSON.stringify({ delta })}\n\n`),
+        (event) => res.write(`data: ${JSON.stringify({ event })}\n\n`),
+      );
+      res.write(`data: ${JSON.stringify({ done: true, response })}\n\n`);
+    } catch (error) {
+      if (!signal.aborted) {
+        res.write(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : String(error) })}\n\n`);
+      }
+    }
+    res.end();
+    return;
+  }
+
+  // 非流式端点 — eval adapter 用，返回完整 JSON。
   if (req.method === "POST" && req.url === "/api/turn") {
     const body = await readJson(req);
     const request = parseAgentRequest(body);
@@ -51,14 +88,9 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     });
     const response = await handleAiSdkTurn(request, abortSignalFor(req));
     trace.event("tools", {
-      calls: response.events.filter((event) => event.type === "action.called").map((event) => event.name),
+      calls: response.events.filter((e) => e.type === "action.called").map((e) => e.name),
     });
-    trace.end({
-      sessionId: response.sessionId,
-      output: response.reply,
-      usage: response.usage,
-      lastAction: response.data.lastAction,
-    });
+    trace.end({ sessionId: response.sessionId, output: response.reply, usage: response.usage, lastAction: response.data.lastAction });
     json(res, 200, response);
     return;
   }
@@ -71,9 +103,7 @@ function parseAgentRequest(value: unknown): AgentRequest {
   const record = value as Record<string, unknown>;
   if (typeof record.message !== "string") throw new Error("message must be a string.");
   const files = parseFiles(record.files);
-  if (record.message.trim().length === 0 && files.length === 0) {
-    throw new Error("message must be non-empty (or include files).");
-  }
+  if (record.message.trim().length === 0 && files.length === 0) throw new Error("message must be non-empty.");
   return {
     message: record.message,
     sessionId: typeof record.sessionId === "string" ? record.sessionId : undefined,
@@ -90,11 +120,7 @@ function parseFiles(value: unknown): NonNullable<AgentRequest["files"]> {
     if (typeof item !== "object" || item === null) continue;
     const f = item as Record<string, unknown>;
     if (typeof f.mimeType === "string" && typeof f.dataBase64 === "string") {
-      out.push({
-        mimeType: f.mimeType,
-        dataBase64: f.dataBase64,
-        filename: typeof f.filename === "string" ? f.filename : undefined,
-      });
+      out.push({ mimeType: f.mimeType, dataBase64: f.dataBase64, filename: typeof f.filename === "string" ? f.filename : undefined });
     }
   }
   return out;

@@ -3,126 +3,268 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Assistant Web Agent</title>
+    <title>AI Assistant</title>
     <style>
       :root {
-        color-scheme: light;
-        font-family:
-          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
         background: #f7f3ea;
         color: #25211b;
       }
-      body {
-        margin: 0;
-      }
+      body { margin: 0; }
       main {
         display: grid;
         grid-template-rows: auto minmax(0, 1fr) auto;
-        min-height: 100vh;
+        height: 100dvh;
       }
-      header,
-      form {
-        border-bottom: 1px solid #d8d0c3;
-        padding: 18px 20px;
+
+      /* header */
+      header {
+        padding: 14px 20px;
         background: #fffaf1;
-      }
-      form {
-        border-top: 1px solid #d8d0c3;
-        border-bottom: 0;
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 10px;
-      }
-      h1 {
-        margin: 0;
-        font-size: 20px;
-      }
-      p {
-        margin: 6px 0 0;
-        color: #756d60;
-      }
-      #messages {
-        overflow: auto;
-        padding: 20px;
+        border-bottom: 1px solid #d8d0c3;
         display: flex;
-        flex-direction: column;
-        gap: 10px;
+        align-items: center;
+        gap: 12px;
+      }
+      header h1 { margin: 0; font-size: 17px; font-weight: 800; flex: 1; }
+
+      /* model picker */
+      #model-wrap { position: relative; }
+      #model-btn {
+        display: flex; align-items: center; gap: 6px;
+        padding: 5px 10px; border: 1px solid #c9bda9; border-radius: 7px;
+        background: white; font: inherit; font-size: 13px; font-weight: 600;
+        cursor: pointer; white-space: nowrap;
+      }
+      #model-btn:hover { border-color: #356f67; }
+      #model-btn .arrow { font-size: 10px; color: #756d60; transition: transform .15s; }
+      #model-btn.open .arrow { transform: rotate(180deg); }
+      #model-dropdown {
+        display: none; position: absolute; right: 0; top: calc(100% + 4px);
+        min-width: 220px; background: white; border: 1px solid #d8d0c3;
+        border-radius: 9px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+        overflow: hidden; z-index: 10;
+      }
+      #model-dropdown.open { display: block; }
+      .model-opt {
+        padding: 9px 13px; cursor: pointer; border-bottom: 1px solid #f0ebe3;
+        font-size: 13px;
+      }
+      .model-opt:last-child { border-bottom: 0; }
+      .model-opt:hover { background: #f7f3ea; }
+      .model-opt.active { background: #edf5f4; color: #356f67; }
+      .model-opt .model-name { font-weight: 700; }
+      .model-opt .model-meta { font-size: 11px; color: #756d60; margin-top: 2px; }
+
+      /* messages */
+      #messages {
+        overflow: auto; padding: 20px;
+        display: flex; flex-direction: column; gap: 10px;
       }
       .msg {
-        max-width: 760px;
-        border: 1px solid #d8d0c3;
-        border-radius: 8px;
-        padding: 10px 12px;
-        white-space: pre-wrap;
+        max-width: 72%; border-radius: 10px;
+        padding: 10px 13px; white-space: pre-wrap; line-height: 1.55;
+        font-size: 14px;
+      }
+      .user { align-self: flex-end; background: #356f67; color: white; }
+      .assistant { align-self: flex-start; background: white; border: 1px solid #d8d0c3; }
+      .tool-bubble {
+        align-self: flex-start; background: #f0ece4; border: 1px solid #d8d0c3;
+        border-radius: 8px; padding: 6px 11px; font-size: 12px;
+        font-family: ui-monospace, monospace; color: #5a5248; max-width: 72%;
+      }
+      .typing { color: #aaa; font-style: italic; }
+
+      /* composer */
+      form {
+        display: grid; grid-template-columns: minmax(0,1fr) auto;
+        gap: 10px; padding: 14px 20px;
+        background: #fffaf1; border-top: 1px solid #d8d0c3;
+      }
+      input[type=text] {
+        padding: 0 12px; min-height: 42px; border-radius: 7px;
+        border: 1px solid #c9bda9; font: inherit; font-size: 14px;
         background: white;
       }
-      .user {
-        align-self: flex-end;
-        border-color: #356f67;
-        background: #356f67;
-        color: white;
+      input[type=text]:focus { outline: none; border-color: #356f67; }
+      button[type=submit] {
+        min-height: 42px; padding: 0 18px; border-radius: 7px;
+        border: none; background: #25211b; color: white;
+        font: inherit; font-weight: 700; font-size: 14px; cursor: pointer;
       }
-      input,
-      button {
-        min-height: 42px;
-        border-radius: 7px;
-        border: 1px solid #c9bda9;
-        font: inherit;
-      }
-      input {
-        padding: 0 12px;
-      }
-      button {
-        padding: 0 16px;
-        border-color: #25211b;
-        background: #25211b;
-        color: white;
-        font-weight: 700;
-        cursor: pointer;
-      }
+      button[type=submit]:disabled { opacity: .45; cursor: default; }
     </style>
   </head>
   <body>
     <main>
       <header>
-        <h1>Assistant Web Agent</h1>
-        <p>一个最小 AI SDK tool-loop AI 助手（查天气 / 算数 / 搜索 / 看图），供 fasteval 的 ai-sdk example 评测。</p>
+        <h1>AI Assistant</h1>
+        <div id="model-wrap">
+          <button id="model-btn" type="button">
+            <span id="model-label">加载中…</span>
+            <span class="arrow">▾</span>
+          </button>
+          <div id="model-dropdown"></div>
+        </div>
       </header>
+
       <section id="messages"></section>
+
       <form id="composer">
-        <input id="input" autocomplete="off" value="北京今天天气怎么样？" />
-        <button type="submit">发送</button>
+        <input id="input" type="text" autocomplete="off" placeholder="发送消息…" />
+        <button type="submit" id="send-btn">发送</button>
       </form>
     </main>
+
     <script type="module">
-      const messages = document.querySelector("#messages");
+      const messagesEl = document.querySelector("#messages");
       const form = document.querySelector("#composer");
       const input = document.querySelector("#input");
-      let sessionId;
+      const sendBtn = document.querySelector("#send-btn");
+      const modelBtn = document.querySelector("#model-btn");
+      const modelLabel = document.querySelector("#model-label");
+      const modelDropdown = document.querySelector("#model-dropdown");
 
-      function append(text, role) {
+      let sessionId;
+      let currentModel = "";
+      let streaming = false;
+
+      // ── 模型选择器 ──────────────────────────────────────────────────────────
+      async function loadModels() {
+        try {
+          const res = await fetch("/api/models");
+          const { models } = await res.json();
+          currentModel = models[0]?.id ?? "gpt-4o-mini";
+          modelLabel.textContent = models[0]?.label ?? currentModel;
+
+          modelDropdown.innerHTML = "";
+          for (const m of models) {
+            const div = document.createElement("div");
+            div.className = `model-opt${m.id === currentModel ? " active" : ""}`;
+            div.dataset.id = m.id;
+            const ctx = m.contextTokens >= 1000 ? `${Math.round(m.contextTokens / 1000)}K ctx` : "";
+            div.innerHTML = `<div class="model-name">${m.label}</div>${ctx ? `<div class="model-meta">${ctx}</div>` : ""}`;
+            div.addEventListener("click", () => selectModel(m.id, m.label, models));
+            modelDropdown.appendChild(div);
+          }
+        } catch {
+          modelLabel.textContent = "gpt-4o-mini";
+          currentModel = "gpt-4o-mini";
+        }
+      }
+
+      function selectModel(id, label, models) {
+        currentModel = id;
+        modelLabel.textContent = label;
+        modelDropdown.querySelectorAll(".model-opt").forEach((el) => {
+          el.classList.toggle("active", el.dataset.id === id);
+        });
+        closeDropdown();
+      }
+
+      function closeDropdown() {
+        modelDropdown.classList.remove("open");
+        modelBtn.classList.remove("open");
+      }
+
+      modelBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isOpen = modelDropdown.classList.toggle("open");
+        modelBtn.classList.toggle("open", isOpen);
+      });
+      document.addEventListener("click", closeDropdown);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDropdown(); });
+
+      // ── 消息渲染 ────────────────────────────────────────────────────────────
+      function appendMsg(text, role) {
         const div = document.createElement("div");
         div.className = `msg ${role}`;
         div.textContent = text;
-        messages.append(div);
-        messages.scrollTop = messages.scrollHeight;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return div;
       }
 
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
+      function appendToolBubble(name, input) {
+        const div = document.createElement("div");
+        div.className = "tool-bubble";
+        div.textContent = `⚙ ${name}(${JSON.stringify(input)})`;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return div;
+      }
+
+      // ── 发送 ────────────────────────────────────────────────────────────────
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
         const message = input.value.trim();
-        if (!message) return;
+        if (!message || streaming) return;
+
         input.value = "";
-        append(message, "user");
-        const response = await fetch("/api/turn", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sessionId, message }),
-        });
-        const data = await response.json();
-        sessionId = data.sessionId;
-        append(data.reply ?? data.error ?? "无回复", "assistant");
+        streaming = true;
+        sendBtn.disabled = true;
+
+        appendMsg(message, "user");
+        const bubble = appendMsg("", "assistant typing");
+        const toolBubbles = new Map();
+
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sessionId, message, model: currentModel }),
+          });
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split("\n\n");
+            buf = lines.pop() ?? "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const msg = JSON.parse(line.slice(6));
+
+              if (msg.delta !== undefined) {
+                bubble.classList.remove("typing");
+                bubble.textContent += msg.delta;
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              } else if (msg.event) {
+                const ev = msg.event;
+                if (ev.type === "action.called") {
+                  const tb = appendToolBubble(ev.name, ev.input);
+                  toolBubbles.set(ev.callId, tb);
+                } else if (ev.type === "action.result") {
+                  const tb = toolBubbles.get(ev.callId);
+                  if (tb) tb.textContent += ` → ${JSON.stringify(ev.output)}`;
+                }
+              } else if (msg.done) {
+                sessionId = msg.response.sessionId;
+                if (!bubble.textContent) bubble.textContent = "（无回复）";
+                bubble.classList.remove("typing");
+              } else if (msg.error) {
+                bubble.textContent = `错误：${msg.error}`;
+                bubble.classList.remove("typing");
+              }
+            }
+          }
+        } catch (err) {
+          bubble.textContent = `错误：${err.message}`;
+          bubble.classList.remove("typing");
+        } finally {
+          streaming = false;
+          sendBtn.disabled = false;
+          input.focus();
+        }
       });
+
+      loadModels();
+      input.focus();
     </script>
   </body>
 </html>

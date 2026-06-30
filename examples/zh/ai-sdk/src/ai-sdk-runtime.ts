@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { generateText, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { generateText, streamText, stepCountIs, tool, type ModelMessage, type ToolSet } from "ai";
 import { z } from "zod/v4";
 import type { AgentEvent, AgentRequest, AgentResponse, AgentUsage, JsonValue, RequestFile } from "./protocol.ts";
 import { createFastevalTrace } from "./fasteval-observability.ts";
 import { calculate, getSession, getWeather, rememberAiTurn, sessionMessages, webSearch } from "./assistant.ts";
+import { resolveModel } from "./models.ts";
 
 const SYSTEM_PROMPT = `
 你是一个乐于助人的中文 AI 助手。
@@ -17,64 +17,70 @@ const SYSTEM_PROMPT = `
 5. 普通闲聊不要调用任何工具。回复保持中文、友好、简洁。
 `.trim();
 
-export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSignal): Promise<AgentResponse> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is required when AGENT_MODE=ai.");
+function buildTools(
+  record: <T extends JsonValue>(name: string, input: JsonValue, run: () => T) => T,
+): ToolSet {
+  return {
+    get_weather: tool({
+      description: "查询某个城市的当前天气。需要实时天气时调用。",
+      inputSchema: z.object({ city: z.string().min(1) }),
+      execute: async (input: { city: string }) => record("get_weather", { city: input.city }, () => getWeather(input)),
+    }),
+    calculate: tool({
+      description: "计算一个四则运算表达式(支持 + - * / 和括号)。需要精确计算时调用。",
+      inputSchema: z.object({ expression: z.string().min(1) }),
+      execute: async (input: { expression: string }) =>
+        record("calculate", { expression: input.expression }, () => calculate(input)),
+    }),
+    web_search: tool({
+      description: "搜索网络获取资料摘要。需要查资料时调用。",
+      inputSchema: z.object({ query: z.string().min(1) }),
+      execute: async (input: { query: string }) => record("web_search", { query: input.query }, () => webSearch(input)),
+    }),
+  };
+}
 
+function makeRecorder(events: AgentEvent[]) {
+  return function record<T extends JsonValue>(name: string, input: JsonValue, run: () => T): T {
+    const callId = `${name}-${randomUUID()}`;
+    events.push({ type: "action.called", callId, name, input, tool: "unknown" });
+    try {
+      const output = run();
+      events.push({ type: "action.result", callId, output, status: "completed" });
+      return output;
+    } catch (error) {
+      events.push({
+        type: "action.result",
+        callId,
+        output: { error: error instanceof Error ? error.message : String(error) },
+        status: "failed",
+      });
+      throw error;
+    }
+  };
+}
+
+/** eval adapter 用：等完整结果，返回 AgentResponse JSON。 */
+export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSignal): Promise<AgentResponse> {
   const session = getSession(request.sessionId);
   const events: AgentEvent[] = [];
-  const openai = createOpenAI({
-    apiKey,
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
-  });
   const modelId = request.model ?? process.env.AGENT_MODEL ?? "gpt-4o-mini";
-  const model = openai.chat(modelId);
+  const model = resolveModel(modelId);
 
-  // 第二路可观测:把本轮发到 fasteval 的 OTLP 接收器(没传 endpoint 就 no-op)。
   const trace = createFastevalTrace(request.otelEndpoint);
-  const turn = trace.span("assistant.turn", { attrs: { "turn.id": session.id, "assistant.mode": "ai" } });
-
-  const tools = makeAiTools({
-    events,
-    record(name, input, run) {
-      const callId = `${name}-${randomUUID()}`;
-      events.push({ type: "action.called", callId, name, input, tool: "unknown" });
-      // tool span:gen_ai.operation.name=execute_tool → fasteval 归到 "tool";call_id 让它
-      // 把 transcript 里的入参/出参 join 回 span。
-      const toolSpan = trace.span(`execute_tool ${name}`, {
-        parent: turn,
-        attrs: { "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": name, call_id: callId },
-      });
-      try {
-        const output = run();
-        events.push({ type: "action.result", callId, output, status: "completed" });
-        toolSpan.end();
-        return output;
-      } catch (error) {
-        events.push({
-          type: "action.result",
-          callId,
-          output: { error: error instanceof Error ? error.message : String(error) },
-          status: "failed",
-        });
-        toolSpan.end(undefined, { error: true });
-        throw error;
-      }
-    },
-  });
-
-  // model span:gen_ai.operation.name=chat → fasteval 归到 "model"。
+  const turn = trace.span("assistant.turn", { attrs: { "turn.id": session.id } });
   const modelSpan = trace.span(`chat ${modelId}`, {
     parent: turn,
-    attrs: { "gen_ai.operation.name": "chat", "gen_ai.request.model": modelId, "gen_ai.system": "openai" },
+    attrs: { "gen_ai.operation.name": "chat", "gen_ai.request.model": modelId },
   });
+
   let result: Awaited<ReturnType<typeof generateText>>;
   try {
     result = await generateText({
       model,
       system: SYSTEM_PROMPT,
       messages: [...sessionMessages(session), userMessage(request.message, request.files)],
-      tools,
+      tools: buildTools(makeRecorder(events)),
       stopWhen: stepCountIs(5),
       abortSignal: signal,
     });
@@ -84,6 +90,7 @@ export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSigna
     await trace.flush();
     throw error;
   }
+
   const usage = normalizeUsage(result);
   modelSpan.end(usageAttrs(usage));
 
@@ -91,20 +98,73 @@ export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSigna
   rememberAiTurn(session, request.message, reply);
   events.push({ type: "message", role: "assistant", text: reply });
 
-  const lastAction = events.findLast((event) => event.type === "action.called")?.name ?? "chat";
+  const lastAction = events.findLast((e) => e.type === "action.called")?.name ?? "chat";
   turn.end({ "assistant.last_action": lastAction });
   await trace.flush();
 
-  return {
-    sessionId: session.id,
-    reply,
-    events,
-    data: { lastAction },
-    usage,
-  };
+  return { sessionId: session.id, reply, events, data: { lastAction }, usage };
 }
 
-/** 把消息组装成 user message:带图片附件时拆成 text + image part(多模态,base64 data URL),否则纯文本。 */
+/** UI 用：流式输出 text delta，工具调用时推送事件，结束后返回完整 AgentResponse。 */
+export async function streamAiSdkTurn(
+  request: AgentRequest,
+  signal: AbortSignal | undefined,
+  onDelta: (text: string) => void,
+  onToolEvent: (event: AgentEvent) => void,
+): Promise<AgentResponse> {
+  const session = getSession(request.sessionId);
+  const events: AgentEvent[] = [];
+  const modelId = request.model ?? process.env.AGENT_MODEL ?? "gpt-4o-mini";
+  const model = resolveModel(modelId);
+
+  const record = <T extends JsonValue>(name: string, input: JsonValue, run: () => T): T => {
+    const callId = `${name}-${randomUUID()}`;
+    const called: AgentEvent = { type: "action.called", callId, name, input, tool: "unknown" };
+    events.push(called);
+    onToolEvent(called);
+    try {
+      const output = run();
+      const result: AgentEvent = { type: "action.result", callId, output, status: "completed" };
+      events.push(result);
+      onToolEvent(result);
+      return output;
+    } catch (error) {
+      const result: AgentEvent = {
+        type: "action.result",
+        callId,
+        output: { error: error instanceof Error ? error.message : String(error) },
+        status: "failed",
+      };
+      events.push(result);
+      onToolEvent(result);
+      throw error;
+    }
+  };
+
+  const stream = streamText({
+    model,
+    system: SYSTEM_PROMPT,
+    messages: [...sessionMessages(session), userMessage(request.message, request.files)],
+    tools: buildTools(record),
+    stopWhen: stepCountIs(5),
+    abortSignal: signal,
+  });
+
+  let fullText = "";
+  for await (const chunk of stream.textStream) {
+    fullText += chunk;
+    onDelta(chunk);
+  }
+
+  const usage = normalizeUsage(await stream.usage);
+  const reply = fullText.trim() || "我已经处理了这一步。";
+  rememberAiTurn(session, request.message, reply);
+  events.push({ type: "message", role: "assistant", text: reply });
+
+  const lastAction = events.findLast((e) => e.type === "action.called")?.name ?? "chat";
+  return { sessionId: session.id, reply, events, data: { lastAction }, usage };
+}
+
 function userMessage(message: string, files?: RequestFile[]): ModelMessage {
   const images = (files ?? []).filter((f) => f.mimeType.startsWith("image/"));
   if (images.length === 0) return { role: "user", content: message };
@@ -117,7 +177,6 @@ function userMessage(message: string, files?: RequestFile[]): ModelMessage {
   };
 }
 
-/** 把 token 用量挂到 model span(GenAI semconv 键),供瀑布图下钻;不参与计费。 */
 function usageAttrs(usage: AgentUsage | undefined): Record<string, number> {
   if (!usage) return {};
   return {
@@ -126,46 +185,13 @@ function usageAttrs(usage: AgentUsage | undefined): Record<string, number> {
   };
 }
 
-function makeAiTools({
-  record,
-}: {
-  events: AgentEvent[];
-  record<T extends JsonValue>(name: string, input: JsonValue, run: () => T): T;
-}): ToolSet {
-  return {
-    get_weather: tool({
-      description: "查询某个城市的当前天气。需要实时天气时调用。",
-      inputSchema: z.object({
-        city: z.string().min(1).describe("城市名，例如 北京、上海。"),
-      }),
-      execute: async (input: { city: string }) => record("get_weather", { city: input.city }, () => getWeather(input)),
-    }),
-    calculate: tool({
-      description: "计算一个四则运算表达式(支持 + - * / 和括号)。需要精确计算时调用。",
-      inputSchema: z.object({
-        expression: z.string().min(1).describe("四则运算表达式，例如 (12 + 8) * 3。"),
-      }),
-      execute: async (input: { expression: string }) =>
-        record("calculate", { expression: input.expression }, () => calculate(input)),
-    }),
-    web_search: tool({
-      description: "搜索网络获取资料摘要。需要查资料时调用。",
-      inputSchema: z.object({
-        query: z.string().min(1).describe("搜索关键词。"),
-      }),
-      execute: async (input: { query: string }) => record("web_search", { query: input.query }, () => webSearch(input)),
-    }),
-  };
-}
-
 function normalizeUsage(result: unknown): AgentUsage | undefined {
-  const record = asRecord(result);
-  if (!record) return undefined;
-  const usage = asRecord(record.usage) ?? asRecord(record.totalUsage);
-  if (!usage) return undefined;
-
+  const rec = asRecord(result);
+  if (!rec) return undefined;
+  const usage = asRecord(rec.usage) ?? asRecord(rec.totalUsage) ?? rec;
   const inputTokens = numberField(usage.inputTokens) ?? numberField(usage.promptTokens) ?? 0;
   const outputTokens = numberField(usage.outputTokens) ?? numberField(usage.completionTokens) ?? 0;
+  if (!inputTokens && !outputTokens) return undefined;
   return { inputTokens, outputTokens, requests: 1 };
 }
 
