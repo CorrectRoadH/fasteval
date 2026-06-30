@@ -1,5 +1,5 @@
 import { defineExperiment } from "fasteval";
-import { webAgent } from "../../agents/web-agent.ts";
+import { webAgent } from "../../adapter/adapter.ts";
 
 // compare-models 组的一格:gpt-4o。
 //

@@ -28,7 +28,6 @@ export interface AgentRequest {
   sessionId?: string;
   message: string;
   model?: string;
-  mode?: "ai" | "mock";
   /** 本轮附带的文件(图片等多模态输入)。 */
   files?: RequestFile[];
   /**

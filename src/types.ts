@@ -681,8 +681,6 @@ export interface DiscoveredExperiment extends ExperimentDef {
 }
 
 export interface Config {
-  agents?: Agent[];
-  defaultAgent?: string;
   sandbox?: SandboxOption;
   workspace?: string;
   judge?: JudgeConfig;

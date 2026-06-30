@@ -206,8 +206,7 @@ async function main(): Promise<void> {
   }
 
   const config = await loadConfig(cwd);
-  // 内置 agents 放前面;config.agents 同名的覆盖(registry 后写后赢)。
-  const registry = buildRegistry([...BUILTIN_AGENTS, ...(config.agents ?? [])]);
+  const registry = buildRegistry(BUILTIN_AGENTS);
   const evals = await discoverEvals(cwd);
 
   if (command === "list") {
@@ -264,9 +263,9 @@ async function main(): Promise<void> {
       }
       process.exit(1);
     }
-    const agentName = flags.agent ?? config.defaultAgent;
+    const agentName = flags.agent;
     if (!agentName) {
-      process.stderr.write("未指定 agent(用 --agent <name> 或 config.defaultAgent)。\n");
+      process.stderr.write("未指定 agent(用 --agent <name>)。\n");
       process.exit(1);
     }
     agentRuns.push({

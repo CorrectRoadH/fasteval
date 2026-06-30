@@ -5,8 +5,8 @@
   "type": "module",
   "description": "fasteval ai-sdk example: evaluate an AI SDK tool-loop assistant web agent",
   "scripts": {
-    "dev": "tsx watch ai-sdk-agent/server.ts",
-    "start": "tsx ai-sdk-agent/server.ts",
+    "dev": "tsx --env-file .env watch src/server.ts",
+    "start": "tsx --env-file .env src/server.ts",
     "eval": "fasteval",
     "typecheck": "tsc --noEmit"
   },

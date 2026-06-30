@@ -1,6 +1,6 @@
 import { defineAgent } from "fasteval";
 import type { Agent, StreamEvent, Usage } from "fasteval";
-import type { AgentEvent, AgentResponse } from "../ai-sdk-agent/src/protocol.ts";
+import type { AgentEvent, AgentResponse } from "../src/protocol.ts";
 
 /**
  * adapter 的连接参数。`baseUrl`(被测 web agent 跑在哪)由【外面】传进来 —— config 注册

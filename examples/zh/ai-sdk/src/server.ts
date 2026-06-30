@@ -2,10 +2,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { handleAiSdkTurn } from "./src/ai-sdk-runtime.ts";
-import { startAppTrace } from "./src/app-observability.ts";
-import { handleMockTurn } from "./src/assistant.ts";
-import type { AgentRequest } from "./src/protocol.ts";
+import { handleAiSdkTurn } from "./ai-sdk-runtime.ts";
+import { startAppTrace } from "./app-observability.ts";
+import type { AgentRequest } from "./protocol.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 5188);
@@ -37,22 +36,20 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
 
   if (req.method === "GET" && (req.url === "/healthz" || req.url === "/api/health")) {
-    json(res, 200, { ok: true, mode: runtimeMode() });
+    json(res, 200, { ok: true });
     return;
   }
 
   if (req.method === "POST" && req.url === "/api/turn") {
     const body = await readJson(req);
     const request = parseAgentRequest(body);
-    const mode = runtimeMode(request);
     const trace = await startAppTrace({
       name: "assistant-turn",
       sessionId: request.sessionId,
-      mode,
       model: request.model ?? process.env.AGENT_MODEL,
       input: request.message,
     });
-    const response = mode === "ai" ? await handleAiSdkTurn(request, abortSignalFor(req)) : await handleMockTurn(request);
+    const response = await handleAiSdkTurn(request, abortSignalFor(req));
     trace.event("tools", {
       calls: response.events.filter((event) => event.type === "action.called").map((event) => event.name),
     });
@@ -69,12 +66,6 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   json(res, 404, { error: "not found" });
 }
 
-function runtimeMode(request?: AgentRequest): "ai" | "mock" {
-  if (request?.mode) return request.mode;
-  if (process.env.AGENT_MODE === "ai") return "ai";
-  return "mock";
-}
-
 function parseAgentRequest(value: unknown): AgentRequest {
   if (typeof value !== "object" || value === null) throw new Error("JSON body is required.");
   const record = value as Record<string, unknown>;
@@ -87,7 +78,6 @@ function parseAgentRequest(value: unknown): AgentRequest {
     message: record.message,
     sessionId: typeof record.sessionId === "string" ? record.sessionId : undefined,
     model: typeof record.model === "string" ? record.model : undefined,
-    mode: record.mode === "ai" || record.mode === "mock" ? record.mode : undefined,
     files: files.length ? files : undefined,
     otelEndpoint: typeof record.otelEndpoint === "string" ? record.otelEndpoint : undefined,
   };
