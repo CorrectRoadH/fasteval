@@ -31,8 +31,6 @@ export interface BubConfig {
   pythonPlugins?: string[];
 }
 
-const SANDBOX_WORKSPACE = "/home/sandbox/workspace";
-
 const UV = "$HOME/.local/bin/uv";
 // bub 二进制:优先用镜像里(预制模板)烘焙在 PATH 上的 bub,否则用 uv 装到 $HOME/.local/bin 的那个。
 // 预制模板把 bub 装到 /usr/local/bin(见 sandbox/docker/Dockerfile),command -v 命中即用 → 跳过安装。
@@ -136,8 +134,8 @@ function tail(s: string, n = 6): string {
 export function bubAgent(config?: BubConfig): Agent {
   const getApiKey = () => config?.apiKey ?? requireEnv("BUB_API_KEY");
   const getApiBase = () => config?.apiBase ?? requireEnv("BUB_API_BASE");
-  // sandboxId → $HOME; persists home detected in setup() so send() can use it.
-  const homeBySession = new Map<string, string>();
+  // sandboxId → { home, workspace }; persists values detected in setup() so send() can use them.
+  const sessionInfo = new Map<string, { home: string; workspace: string }>();
 
   return defineSandboxAgent({
     name: "bub",
@@ -154,7 +152,8 @@ export function bubAgent(config?: BubConfig): Agent {
 
     async setup(sb) {
       const home = (await sb.runShell("printf '%s' $HOME")).stdout.trim() || "/home/node";
-      homeBySession.set(sb.sandboxId, home);
+      const workspace = sb.getWorkingDirectory();
+      sessionInfo.set(sb.sandboxId, { home, workspace });
       await ensureBub(sb, home);
 
       if (config?.pythonPlugins?.length) {
@@ -164,12 +163,12 @@ export function bubAgent(config?: BubConfig): Agent {
         );
       }
 
-      if (!(await sb.fileExists(`${SANDBOX_WORKSPACE}/AGENTS.md`))) {
+      if (!(await sb.fileExists(`${workspace}/AGENTS.md`))) {
         await shared.writeFile(
           sb,
-          `${SANDBOX_WORKSPACE}/AGENTS.md`,
+          `${workspace}/AGENTS.md`,
           [
-            `You are a coding agent working in a Next.js project at ${SANDBOX_WORKSPACE}.`,
+            `You are a coding agent working in a Next.js project at ${workspace}.`,
             ``,
             `Implement the requested feature by writing files directly to disk with the available tools:`,
             `- fs_write(path, content): create or overwrite a file`,
@@ -177,7 +176,7 @@ export function bubAgent(config?: BubConfig): Agent {
             `- bash(cmd): run shell commands`,
             ``,
             `Do NOT respond with only a text explanation — write the actual code files.`,
-            `After writing, verify with bash("cd ${SANDBOX_WORKSPACE} && npm run build").`,
+            `After writing, verify with bash("cd ${workspace} && npm run build").`,
           ].join("\n"),
         );
       }
@@ -185,7 +184,8 @@ export function bubAgent(config?: BubConfig): Agent {
 
     async send(input, ctx) {
       const sb = ctx.sandbox;
-      const home = homeBySession.get(sb.sandboxId) ?? "/home/node";
+      const info = sessionInfo.get(sb.sandboxId) ?? { home: "/home/node", workspace: sb.getWorkingDirectory() };
+      const { home, workspace } = info;
       const bubHome = `${home}/.bub`;
       const model = ctx.model ?? "gpt-5.4";
       const sessionId = `fe-${sb.sandboxId}`;
@@ -200,11 +200,11 @@ export function bubAgent(config?: BubConfig): Agent {
       };
       const escaped = input.text.replace(/'/g, "'\\''");
       const res = await sb.runShell(
-        `${BUB} --workspace ${SANDBOX_WORKSPACE} run '${escaped}' --session-id ${sessionId}`,
+        `${BUB} --workspace ${workspace} run '${escaped}' --session-id ${sessionId}`,
         { env, stream: true },
       );
 
-      const raw = await sb.readFile(tapePath(SANDBOX_WORKSPACE, sessionId, bubHome)).catch(() => undefined);
+      const raw = await sb.readFile(tapePath(workspace, sessionId, bubHome)).catch(() => undefined);
       const parsed = shared.parseBub(raw);
       const events = [...parsed.events];
       if (res.exitCode !== 0) events.push({ type: "error", message: diagnose(res, parsed.events, raw) });
