@@ -30,6 +30,7 @@ import type {
   Turn,
   TurnHandle,
   Usage,
+  ValueAssertion,
 } from "../types.ts";
 
 /** t.file(path) 返回它,延迟到 finalize 再读沙箱文件;t.check 识别并解析它。 */
@@ -202,28 +203,31 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
   }
 
   const primary = makeSessionHandle(manager.primary);
-  const context: TestContext = {
-    ...primary,
+  // primary.reply/sessionId/events/usage/judge 是 getter,读的是 manager.primary 的实时状态。
+  // 不能 `{ ...primary, ... }` 展开——对象展开会在展开的那一刻把每个 getter 求值成静态值,
+  // 之后 t.reply 就永远冻结在「还没 send 过」的初始状态(空字符串)。改用
+  // Object.getOwnPropertyDescriptors 搬运属性描述符,getter 保持 getter,照常读到最新状态。
+  const extra = {
     newSession: () => makeSessionHandle(manager.newSession()),
     signal: deps.signal,
     model: deps.model,
     flags: deps.flags,
     log: deps.log,
-    skip: (reason) => {
+    skip: (reason: string) => {
       if (reason.trim().length === 0) throw new Error(t("context.skipEmpty"));
       state.skipReason = reason;
       throw new EvalSkipped(reason);
     },
 
-    check: (value, assertion) =>
+    check: (value: unknown, assertion: ValueAssertion) =>
       collector.record({
         name: assertion.name,
         severity: assertion.severity,
         threshold: assertion.threshold,
         evaluate: async (sc) => assertion.score(await resolveValue(value, sc)),
       }),
-    group: (title, fn) => collector.withGroup(title, fn),
-    require: async (value, assertion) => {
+    group: <T,>(title: string, fn: () => Promise<T> | T) => collector.withGroup(title, fn),
+    require: async (value: unknown, assertion: ValueAssertion) => {
       const v = value instanceof FileRef ? await deps.sandbox.readFile(value.path).catch(() => "") : value;
       const score = await assertion.score(v);
       const passed = assertion.threshold === undefined ? score > 0 : score >= assertion.threshold;
@@ -238,12 +242,19 @@ export function createEvalContext(deps: ContextDeps): { context: TestContext; st
     },
 
     sandbox: sandboxHandle,
-    file: (path) => new FileRef(path) as unknown as string,
-    fileChanged: (path) => collector.record(Scoped.fileChanged(path)),
-    fileDeleted: (path) => collector.record(Scoped.fileDeleted(path)),
-    notInDiff: (re) => collector.record(Scoped.notInDiff(re)),
+    file: (path: string) => new FileRef(path) as unknown as string,
+    fileChanged: (path: string) => collector.record(Scoped.fileChanged(path)),
+    fileDeleted: (path: string) => collector.record(Scoped.fileDeleted(path)),
+    notInDiff: (re: RegExp) => collector.record(Scoped.notInDiff(re)),
     noFailedShellCommands: () => collector.record(Scoped.noFailedShellCommands()),
   };
+  const context = Object.defineProperties(
+    {},
+    {
+      ...Object.getOwnPropertyDescriptors(primary),
+      ...Object.getOwnPropertyDescriptors(extra),
+    },
+  ) as TestContext;
 
   return { context, state };
 }
