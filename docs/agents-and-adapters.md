@@ -50,7 +50,6 @@ interface AgentContext {
   readonly flags: Readonly<Record<string, unknown>>; // experiment 的 feature flags,透传给 agent
   readonly sandbox?: Sandbox;            // 仅沙箱型 agent 有(运行器按 --sandbox 备好)
   readonly session: { id?: string; readonly isNew: boolean }; // 多轮 resume / newSession 用
-  readonly shared: Readonly<Record<string, unknown>>; // hooks.run.setup 经 run.share() 放入的东西,见 Lifecycle
   log(msg: string): void;
 }
 
@@ -247,8 +246,8 @@ export default defineSandboxAgent({
 | 鉴权(API key / token / base url) | **agent 本地** —— 它怎么连自己,是私事 | 在定义里读 env / 闭包,不经 ctx |
 | CLI 细节(装什么包、参数形状、transcript / 私人记忆在哪) | **agent 本地** | 写死在 `send` / `readMemory` 里 |
 | **model** | **实验决定(留空)** | `ctx.model`(省略 → agent 原生默认) |
-| **feature flags**(webResearch、注入哪个 skill、effort…) | **实验决定** | `ctx.flags.*` —— `send`、`hooks.sandbox.setup`、eval 的 `t.flags` 都能读 |
-| runs / earlyExit / evals / sandbox / budget / hooks | **实验决定** | 运行器据此调度;`hooks.sandbox.setup(sb, ctx)` 也拿得到 `ctx.flags`,详见 [Lifecycle](lifecycle.md) |
+| **feature flags**(webResearch、注入哪个 skill、effort…) | **实验决定** | `ctx.flags.*` —— agent 的 `send` 与 eval 的 `t.flags` 都能读 |
+| runs / earlyExit / evals / sandbox / budget | **实验决定** | 运行器据此调度 |
 
 一句话:**agent 只配「怎么连我自己」,不配「跑哪个模型、开哪些开关」**;后者全留给 [experiment](experiments.md),经 `ctx`(eval 里是 `t`)透传。这样同一个 agent 能被不同实验以不同 model / flags 复用,不必改 agent。
 
@@ -265,15 +264,14 @@ export default defineSandboxAgent({
 
 ### `ctx`(agent 侧)与 `t`(eval 侧):同一份东西,两个名字
 
-`send` / `hooks.sandbox.setup` 收到的叫 `ctx`,`test` 收到的叫 `t`。它们不是两套数据:**`t` 是运行器在 `ctx` 之上为 eval 作者搭的高层视图** —— `t.send(...)` 内部就是拿着 `ctx` 去调 `agent.send(input, ctx)`。
+`send` / `setup` 收到的叫 `ctx`,`test` 收到的叫 `t`。它们不是两套数据:**`t` 是运行器在 `ctx` 之上为 eval 作者搭的高层视图** —— `t.send(...)` 内部就是拿着 `ctx` 去调 `agent.send(input, ctx)`。
 
-| 概念 | `ctx`(agent:`send` / `hooks.sandbox.setup`) | `t`(eval:`test`) | 关系 |
+| 概念 | `ctx`(agent:`send` / `setup`) | `t`(eval:`test`) | 关系 |
 |---|---|---|---|
 | 实验 flags | `ctx.flags` | `t.flags` | **同一份**(experiment 给) |
 | 模型 | `ctx.model`(用来拼 `--model`) | `t.model`(只读,知道在测谁) | 同一份 |
 | 取消信号 | `ctx.signal` | `t.signal` | 同一份 |
 | 日志 | `ctx.log()` | `t.log()` | 同一个 |
-| 共享数据 | `ctx.shared`(只读) | `t.shared`(只读) | **同一份**(`hooks.run.setup` 经 `run.share()` 放入,run 作用域,见 [Lifecycle](lifecycle.md)) |
 | 会话 | `ctx.session`(`id`/`isNew`,用来 resume) | `t.newSession()`(发起新会话) | `t` 发起 → 运行器置 `isNew` → `ctx` 执行 |
 | 沙箱 | `ctx.sandbox`(底层 `Sandbox` 句柄) | `t.sandbox`(文件 IO / 命令执行 / 结果断言) | eval 作者看不到 `stop`;生命周期由 runner 管 |
 | 一轮结果 | `send` 返回的 `Turn`(`events` 为核心) | `t.send()` 的返回 / `t.reply` / `turn.outputEquals` | core 把 `Turn` 转交给 eval |

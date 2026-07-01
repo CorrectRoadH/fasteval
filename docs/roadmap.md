@@ -60,7 +60,6 @@
 - 实验层:`defineExperiment` + `fasteval exp`,`agent × model × eval × runs` 矩阵展开。
 - `--runs` 通过率 + `earlyExit` + 可疑快速失败重试。
 - 指纹缓存(`--force`)。
-- [生命周期钩子](lifecycle.md):`hooks.run` / `hooks.sandbox` 各 `setup` / `teardown`(`teardown` 必在 finally 跑);下游分析走 reporter,不设 `onRunComplete` 实验钩子(对照 [Experiments 砍字段](experiments.md))。
 - 双层超时。
 - **用量与成本**:`Turn.usage` 累加 + transcript 解析器抠 token + 价格表换算 `estimatedCostUSD`;`t.maxTokens()` / `t.maxCost()` 断言;`--budget` 预算护栏;报告里出每 eval / 整轮的 tokens + $,跨 agent 对比「质量 × 成本」。
 

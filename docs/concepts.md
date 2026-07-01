@@ -88,18 +88,12 @@
 | `maxConcurrency` | `number` | 并发上限(见 [Runner](runner.md#调度有界并发)) |
 | `timeoutMs` | `number` | 单 eval 超时 |
 | `pricing` | `Record<string, Price>` | 价格表覆盖,合并在内置快照之上(见 [Observability](observability.md#换算成本价格表从哪来)) |
-| `hooks` | `LifecycleHooks` | `run` / `sandbox` 的 `setup` / `teardown`(见 [Lifecycle](lifecycle.md)) |
 
 沙箱后端**不在 config**:它由 experiment 的 `sandbox` 字段决定(见 [Experiments](experiments.md#definexperiment-的形状)),`--sandbox` 可临时覆盖。config 只管项目级默认与全局资源。
-| `hooks` | `LifecycleHooks` | `run` / `sandbox` 的 `setup` / `teardown`(见 [Lifecycle](lifecycle.md)) |
 
 **Strict mode** / **严格模式** —— 默认情况下 soft 断言低于阈值仍判 `passed`;`--strict` 下同样的情况改判 `failed`。用于 CI 把质量回归当成红灯。
 
-**Setup hook** / **Teardown hook** —— 生命周期钩子的两个**阶段**动词。`setup` 在被测对象运行前预置环境(写 `.env`、装依赖、起服务),`teardown` 在跑完清理。`setup` 可返回一个 cleanup 闭包代替独立 `teardown`;`teardown` / cleanup 一律在 `finally` 跑,失败也跑。两者在每个作用域下成对出现(`hooks.run.setup`、`hooks.sandbox.teardown`…)。
-
-**`hooks`** —— 收纳全部[生命周期钩子](lifecycle.md)的统一对象,**作用域是结构 key、动词统一为 `setup`/`teardown`**(无 `globalSetup` 这类特殊前缀):`hooks.run`(整轮一次,起停共享环境,产物经 `run.share()` → `ctx.shared` 传给各 attempt)、`hooks.sandbox`(每个 attempt 一次,预置/清理沙箱),`hooks.eval` 为预留扩展点。`defineConfig` 与 `defineExperiment` 同形,后者叠加在前者之上。
-
-**Lifecycle** / **生命周期** —— 环境**起停**的分层模型,三个嵌套作用域:run、sandbox(每个 attempt)、backend(`Sandbox.create`/`stop`/`reset`)。用户钩子(`hooks.run` / `hooks.sandbox`)归 config(默认)与 experiment(叠加),**不进 eval**(eval 只管"测什么")。和 [reporter](#reporter--报告器) 正交:钩子管资源起停,reporter 管结果消费。详见 [Lifecycle](lifecycle.md)。
+**环境预置** —— fasteval **不提供框架级生命周期钩子**。要在跑 agent 前准备环境,放三处之一:这条 eval 的沙箱预置写在 `test(t)` 里(手工 `t.sandbox.writeFiles` / `runCommand`),连 agent / 装 CLI 写在 [`SandboxAgent.setup`](agents-and-adapters.md#sandboxagent-契约),整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。详见 [Sandbox · 环境预置放哪](sandbox.md#环境预置放哪)。
 
 ## 相关阅读
 

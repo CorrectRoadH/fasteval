@@ -75,39 +75,27 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 外层是兜底,保证一个卡死的 case 不会挂起整批。
 
-## 生命周期钩子
+## 环境预置不进运行器
 
-环境的起停由一组分层钩子负责,运行器按作用域把它们插进调度的固定位置(完整模型见 [Lifecycle](lifecycle.md)):
+fasteval **没有框架级生命周期钩子**——运行器只固定"发现 → 调度 → 沙箱起停 / git 基线 / 采 diff → 评分 → 报告"这条主轴,不替用户跑任何环境 `setup` / `teardown`。要在跑 agent 前准备环境,分摊到三处已有职责:连 agent / 装 CLI 走 [`SandboxAgent.setup`](agents-and-adapters.md#sandboxagent-契约),这条 eval 的沙箱预置写在 `test(t)` 里,整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。完整说明见 [环境预置放哪](sandbox.md#环境预置放哪)。
 
-所有钩子收在一个 `hooks` 对象里,动词统一为 `setup` / `teardown`,作用域是结构 key:
+**下游分析**(二次评分、自定义指标)走 [reporter](observability.md#reporters),不另设运行钩子——这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](experiments.md#从-agent-eval-砍掉了什么以及为什么))。
 
-- **`hooks.run.setup` / `hooks.run.teardown`**(run 作用域) —— 整轮一次,在第一个 attempt 之前 / 最后一个 attempt 之后跑;用来起停共享环境(mock API、共享 DB、预热池)。
-- **`hooks.sandbox.setup` / `hooks.sandbox.teardown`**(sandbox 作用域,每个 attempt) —— 每次运行前预置沙箱(写 `.env`、起服务、装额外依赖)、跑完清理;能读 `ctx.flags` 按 feature flag 分支,`setup` 可返回 cleanup 闭包。
-
-执行顺序:config 钩子先于 experiment 钩子叠加,teardown 反序;**`teardown` / cleanup 一律在 `finally` 里跑**,失败也跑。错误隔离按作用域分级:`hooks.run.setup` 抛错**中止整轮**,`hooks.sandbox.setup` 抛错**隔离成该 attempt / eval `errored`**(不影响别人),`teardown` 抛错只记 diagnostic、不改判决。
-
-**下游分析**(二次评分、自定义指标、品牌提及统计)走 [reporter](observability.md#reporters),不另设运行钩子 —— 这是从 agent-eval 的 `onRunComplete` 收敛过来的(见 [Experiments 砍字段](experiments.md#从-agent-eval-砍掉了什么以及为什么))。生命周期钩子管**资源起停**、reporter 管**结果消费**,两者正交,见 [资源 vs 分析](lifecycle.md#不和-reporter-冲突--资源-vs-分析)。
-
-## 生命周期事件
+## 运行器事件
 
 运行器发一串事件,供 CLI dashboard、reporter、外部集成消费:
 
 ```text
 run:start          { total, agent, model }
-run:setup          { }                          # hooks.run.setup 开始(见 Lifecycle)
-run:setupComplete  { durationMs }
 eval:start         { id, attempt }
 eval:complete      { id, attempt, outcome, durationMs, usage, estimatedCostUSD }
 run:earlyExit      { id }
 run:budgetExceeded { spentUSD, budgetUSD }
-run:teardown       { }                          # hooks.run.teardown 开始
 run:saved          { outputDir }
 run:summary        { passed, failed, skipped, errored, durationMs, usage, estimatedCostUSD }
 ```
 
 `outcome` 是互斥的判决分类:`passed` / `failed` / `errored` / `skipped`,没有 `scored` 中间态。`run:summary.failed` 只统计断言/评分不通过,环境、超时、adapter 或 agent runtime 问题统计到 `errored`。
-
-起停失败另发 `run:setupFailed` / `attempt:teardownFailed` / `run:teardownFailed`,完整事件表见 [Lifecycle:生命周期事件](lifecycle.md#生命周期事件)。
 
 ## 退出码
 
@@ -120,7 +108,6 @@ run:summary        { passed, failed, skipped, errored, durationMs, usage, estima
 ## 相关阅读
 
 - [Architecture](architecture.md) —— 运行器在四段数据流里的位置与端到端时序。
-- [Lifecycle](lifecycle.md) —— 生命周期钩子的作用域、执行顺序与错误语义。
-- [Sandbox](sandbox.md) —— 预热与复用的后端支持。
+- [Sandbox](sandbox.md) —— 预热与复用的后端支持,以及环境预置放哪。
 - [Observability](observability.md) —— 运行器产出的工件与报告。
 - [CLI](cli.md) —— 暴露这些调度行为的标志。

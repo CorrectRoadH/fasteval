@@ -141,18 +141,29 @@ await sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });
 ```text
  createSandbox(backend, timeout)
   → git init && git commit               # 打一次空基线,供之后 diff——不管 test() 里写了什么
-  → hooks.sandbox.setup?.(sandbox, ctx)  # 用户预置钩子,可返回 cleanup 闭包
+  → SandboxAgent.setup?.(sandbox, ctx)   # agent 自己的一次性预置(装 CLI / 写主配置)
   → test(t)                              # ← 交给 eval 作者,顺序由它自己决定:
   │    t.sandbox.writeFiles(..., "/workspace") / uploadFiles(..., "/workspace") / uploadDirectory(..., "/workspace")
   │    t.send()                            #   驱动 agent(Adapter 在沙箱里跑 CLI,解析成 events)
   │    t.sandbox.runCommand(..., { cwd: "/workspace" }) # 手工跑校验命令(可以晚于 t.send(),agent 天然看不到)
   │    断言…                               #   t.sandbox.fileChanged / t.sandbox.diff / t.check(commandSucceeded)
   → collectGeneratedFiles()              # git diff HEAD
-  → hooks.sandbox.teardown?.() / cleanup()  # 用户清理钩子(finally,失败也跑)
   → sandbox.stop()                       # 销毁
 ```
 
-核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。后端应保证 `/workspace` 可写;命令工作目录用 `runCommand` / `runShell` 的 `cwd` option 表达,默认 `/workspace`,不提供可变的 `setWorkingDirectory`。`hooks.sandbox.setup` / `teardown` 是留给用户在"创建"和"销毁"这两头插自己环境逻辑的缝,成对出现、`teardown` 必在 `finally` 跑,完整模型见 [Lifecycle](lifecycle.md)。
+核心只固定两件事:**沙箱创建时打一次空 git 基线**,和**销毁前采一次 diff**——这两件事跟"里面放了什么文件"无关,核心不需要知道也不需要预设目录约定。中间"传什么文件、传到哪、什么时候调 agent、什么时候手工跑测试"全部是 `test(t)` 里的普通代码决定,不是核心的固定编排,详见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)——Adapter 也只管 `t.send()` 触发的那一次"在沙箱里把 agent 跑起来"。author-facing 的 `t.sandbox` 同时承载立即 IO / 命令执行和最终 diff / 文件变化视图,但不暴露 `stop()`。后端应保证 `/workspace` 可写;命令工作目录用 `runCommand` / `runShell` 的 `cwd` option 表达,默认 `/workspace`,不提供可变的 `setWorkingDirectory`。fasteval **不提供框架级生命周期钩子**在这两头插东西——预置放哪见下节。
+
+## 环境预置放哪
+
+fasteval 没有 `hooks` / `setup` / `teardown` 这类框架级生命周期钩子。要在跑 agent 前准备环境,按职责分摊到三处已有的地方——**每一处都是普通代码,不是框架编排**:
+
+| 要准备的东西 | 放哪 | 怎么清理 |
+|---|---|---|
+| 连 agent、装 CLI、写 agent 自己的主配置(每 attempt 一次) | [`SandboxAgent.setup`](agents-and-adapters.md#sandboxagent-契约) | 随沙箱销毁,无需手工清 |
+| **这条 eval** 的沙箱预置(写 `.env`、装依赖、按 `t.flags` 注入 skill) | `test(t)` 里的普通代码(`t.sandbox.writeFiles` / `runCommand`) | 随沙箱销毁;要清沙箱外的东西用 `try/finally` |
+| **整轮共享**的外部服务(mock API、共享 DB、license) | 外部编排:`docker compose up -d && fasteval exp … && docker compose down`,或 CI 脚本 | 外部编排负责,URL 经 env 传入 agent / eval |
+
+为什么这样够用:沙箱内的东西随沙箱销毁自动没了,不需要 teardown;整轮共享的外部资源用 `docker compose` / CI 脚本起停是业界通行做法,比一个 fasteval 专属钩子更少要维护、也不把资源起停逻辑锁进框架。这与"没有隐式 fixture 发现、起始文件手工写进 `test()`"是同一条纪律:**能用更基础的机制表达的,就不在框架里再造一层。**
 
 ## 性能:复用与预热
 
@@ -165,7 +176,6 @@ await sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });
 
 ## 相关阅读
 
-- [Agents 与 Adapters](agents-and-adapters.md) —— Adapter 如何通过 `Sandbox` 接口驱动 agent。
-- [Lifecycle](lifecycle.md) —— `setup` / `teardown` 与复用 / 预热的嵌套关系。
+- [Agents 与 Adapters](agents-and-adapters.md) —— Adapter 如何通过 `Sandbox` 接口驱动 agent,以及 `SandboxAgent.setup`。
 - [Runner](runner.md) —— 并发、预热、复用的调度。
 - [Vision](vision.md) —— 后端名只用于路由,不进核心行为。

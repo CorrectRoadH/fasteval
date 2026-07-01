@@ -109,7 +109,7 @@ npx fasteval exp local fixtures/button --sandbox docker
 - **建立心智模型:** [Vision](vision.md)、[Concepts(术语表)](concepts.md)、[Architecture](architecture.md)。
 - **写 eval:** [Eval Authoring(编写 eval)](eval-authoring.md)、[Assertions(断言参考:作用域 + 来源)](assertions.md)、[Scoring(评分器)](scoring.md)。
 - **连 AI / 接 agent:** [Agents 与 Adapters](agents-and-adapters.md)、[Sandbox](sandbox.md)。
-- **跑与看:** [Experiments(实验/运行矩阵)](experiments.md)、[Lifecycle(环境起停钩子)](lifecycle.md)、[Runner(执行引擎)](runner.md)、[CLI 参考](cli.md)、[Observability(可观测性)](observability.md)。
+- **跑与看:** [Experiments(实验/运行矩阵)](experiments.md)、[Runner(执行引擎)](runner.md)、[CLI 参考](cli.md)、[Observability(可观测性)](observability.md)。
 - **规划:** [Roadmap(路线图与 MVP)](roadmap.md)。
 
 ## 关于这些文档
