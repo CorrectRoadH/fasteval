@@ -1,15 +1,13 @@
 import { defineEval } from "fasteval";
 
-// 评测：图片理解。
-//
-// 用 t.sendFile 把本地真实图片(evals/fixtures/sample.png,蓝底中间一个白方块)发给助手:
-// fasteval 读文件 → base64 → 经 adapter 交给 app → AI 模式喂多模态视觉模型 / mock 模式给固定描述。
-// 助手应描述出图片内容(主色调蓝、有个白方块)。
+// 回归夹具:与 examples/zh/ai-sdk/evals/image-understanding.eval.ts 同款断言。
+// 配 refusal-agent(永远回复"模型不支持图像输入"),验证「模型没看图」这种明确失败
+// 一定会让 eval outcome = failed,而不是被过松的 gate 断言悄悄放过。
 export default defineEval({
-  description: "AI 助手：理解图片内容",
+  description: "AI 助手：理解图片内容（拒绝识图回归夹具）",
 
   async test(t) {
-    const turn = await t.sendFile("evals/fixtures/sample.png", "这张图片里有什么？主要是什么颜色？");
+    const turn = await t.sendFile("sample.png", "这张图片里有什么？主要是什么颜色？");
     turn.expectOk();
 
     await t.group("助手描述出图片内容", () => {

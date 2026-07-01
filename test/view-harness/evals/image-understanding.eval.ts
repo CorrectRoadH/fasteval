@@ -13,7 +13,10 @@ export default defineEval({
 
     await t.group("助手描述出图片内容", () => {
       t.succeeded();
-      t.messageIncludes(/蓝|blue|白|方块|图片|颜色/i);
+      // 必须同时提到两个具体特征(蓝色背景 + 白色方块),而不是任一宽泛关键词就算数——
+      // "图片"/"颜色"这类泛词连"我看不了图片"式的拒绝语都能命中,会把假阴性误判成通过。
+      t.messageIncludes(/蓝|blue/i);
+      t.messageIncludes(/白|方块|square/i);
     });
 
     t.judge.autoevals
