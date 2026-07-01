@@ -1,4 +1,14 @@
 import { defineEval } from "fasteval";
+import type { StreamEvent } from "fasteval";
+
+// 把整段对话(user + assistant 消息)拼成一段文本,喂给 judge 当材料——
+// t.judge 默认只看最后一轮(t.reply),这条问的是「整段三轮对话」,证据不够就得自己拼。
+function conversationText(events: readonly StreamEvent[]): string {
+  return events
+    .filter((e): e is Extract<StreamEvent, { type: "message" }> => e.type === "message")
+    .map((e) => `${e.role}: ${e.text}`)
+    .join("\n");
+}
 
 // 评测：先发图片，后续两轮纯文字追问。
 //
@@ -29,11 +39,9 @@ export default defineEval({
       t.messageIncludes(/白|white/i);
     });
 
-    // judge 默认只看最后一轮（t.reply）。这条问的是"整段三轮对话"，
-    // 所以把全程对话用 t.transcript.text() 拼出来喂给裁判，否则它只看到最后一句、证据不足。
-    t.judge
-      .agent("助手是否在三轮对话中始终基于第一轮发送的图片内容作答，而不是凭空发挥？", {
-        on: t.transcript.text(),
+    t.judge.autoevals
+      .closedQA("助手是否在三轮对话中始终基于第一轮发送的图片内容作答，而不是凭空发挥？", {
+        on: conversationText(t.events),
       })
       .atLeast(0.7);
   },

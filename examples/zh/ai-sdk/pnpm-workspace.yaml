@@ -6,3 +6,5 @@ allowBuilds:
   ssh2: true
 minimumReleaseAgeExclude:
   - fasteval@0.1.0-alpha.0
+overrides:
+  fasteval: link:../../..

@@ -18,6 +18,7 @@ import { probeJudge } from "../scoring/judge.ts";
 import { deriveRunFacts, buildO11ySummary } from "../o11y/derive.ts";
 import { estimateCost } from "../o11y/cost.ts";
 import { t } from "../i18n/index.ts";
+import { formatThrown } from "../util.ts";
 import {
   captureGeneratedFiles,
   initGitAndCommit,
@@ -531,8 +532,7 @@ function runAttemptEffect(
 }
 
 function causeToError(cause: Cause.Cause<never>): string {
-  const e = Cause.squash(cause);
-  return e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  return formatThrown(Cause.squash(cause));
 }
 
 interface AttemptResources {
@@ -618,7 +618,9 @@ async function runAttemptBody(
       } else if (e instanceof TurnFailed) {
         error = e.message;
       } else {
-        error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        // 带 stack——eval 脚本(比如引用了已改名/删掉的 API)抛出的 TypeError 只有
+        // "name: message" 完全定位不到是哪一行,报告里必须能看见 eval 文件的 file:line。
+        error = formatThrown(e);
       }
     }
 
@@ -716,7 +718,7 @@ async function runAttemptBody(
     return {
       ...base,
       durationMs: Date.now() - t0,
-      error: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
+      error: formatThrown(e),
     };
   } finally {
     // teardown / cleanup 一律在 finally 跑(失败也跑),不改判决,各自兜错(diagnostic)。

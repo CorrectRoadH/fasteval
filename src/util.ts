@@ -22,6 +22,16 @@ export function stripComments(code: string): string {
   return code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
+/**
+ * 把 catch 到的 e 转成报告用字符串。优先带 stack(定位到 eval 脚本抛错的具体 file:line),
+ * 只在没有 stack 时才退化到 `name: message`。EvalResult.error 走这个,别再手写
+ * `e instanceof Error ? e.message : String(e)`——那样用户永远看不出错误发生在哪一行。
+ */
+export function formatThrown(e: unknown): string {
+  if (e instanceof Error) return e.stack ?? `${e.name}: ${e.message}`;
+  return String(e);
+}
+
 /** 零填充到 4 位(数据集扇出的 id:sql/0000)。 */
 export function pad4(n: number): string {
   return String(n).padStart(4, "0");
