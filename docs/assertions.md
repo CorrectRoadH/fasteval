@@ -29,13 +29,13 @@
 | API | 作用 | 备注 |
 |---|---|---|
 | `await t.send(input)` | 给 agent 发一轮输入并等待稳定 | `input` 可以是字符串或结构化消息;返回 `turn` |
-| `await t.sendFile(text, path, mediaType?)` | 给 agent 发带本地文件的一轮输入 | 文件从宿主项目读取,作为 data URL 附加 |
+| `await t.sendFile(path, text?)` | 给 agent 发带本地文件的一轮输入 | 文件按 `path`(相对项目根)读取,作为 data URL 附加;`text` 是可选的配文文字;MIME 类型按扩展名推断,暂不支持显式覆盖 |
 | `t.requireInputRequest(filter?)` | 断言恰好有一个待处理输入请求,并返回它 | gate;filter 可匹配工具名、action input、prompt、display、option ids |
 | `await t.respond(...responses)` | 回答指定待处理输入请求 | 每个 response 形如 `{ request, optionId }`;响应会作为下一轮发送 |
 | `await t.respondAll(optionId)` | 用同一 option 回答所有待处理输入请求 | 响应会作为下一轮发送 |
 | `t.newSession()` | 开一条独立会话线 | 返回 `session`;事件仍汇入 `t.*` run 级断言 |
 | `session.send(input)` | 给独立 session 发一轮输入 | 返回 `turn`;不影响主 session 的 resume 状态 |
-| `session.sendFile(text, path, mediaType?)` | 给独立 session 发带本地文件的一轮输入 | 与 `t.sendFile` 同形,但归属这个 session |
+| `session.sendFile(path, text?)` | 给独立 session 发带本地文件的一轮输入 | 与 `t.sendFile` 同形,但归属这个 session |
 | `session.requireInputRequest(filter?)` | 在这个 session 里断言恰好有一个待处理输入请求 | gate;避免多 session 时误匹配其它 session |
 | `await session.respond(...responses)` | 回答这个 session 的指定待处理输入请求 | 与 `t.respond` 同形 |
 | `await session.respondAll(optionId)` | 用同一 option 回答这个 session 的所有待处理输入请求 | 与 `t.respondAll` 同形 |

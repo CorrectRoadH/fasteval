@@ -96,7 +96,7 @@ export default defineEval({
 });
 ```
 
-`t.reply` 是最后一条 assistant 消息;`t.sessionId` 是当前主会话 id;`t.events` 是主 session 目前捕获到的强类型事件流。`t.send(input)` 接受字符串或结构化消息,返回一个不可变的 **Turn**,带 `message` / `data`(结构化输出)/ `toolCalls` / `status` / `events` / `expectOk()`。带本地文件的一轮用 `t.sendFile(text, path, mediaType?)`,文件会作为 data URL 附加到这一轮输入里。
+`t.reply` 是最后一条 assistant 消息;`t.sessionId` 是当前主会话 id;`t.events` 是主 session 目前捕获到的强类型事件流。`t.send(input)` 接受字符串或结构化消息,返回一个不可变的 **Turn**,带 `message` / `data`(结构化输出)/ `toolCalls` / `status` / `events` / `expectOk()`。带本地文件的一轮用 `t.sendFile(path, text?)`,文件会作为 data URL 附加到这一轮输入里,MIME 类型按 `path` 扩展名推断。
 
 ## 多轮
 

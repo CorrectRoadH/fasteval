@@ -62,7 +62,7 @@ interface Turn {
 }
 ```
 
-`send` 是**统一动词**,`Turn.events` 是**统一产物**。区别只在 `send` 内部怎么把原始返回变成 `events` —— 这就是 adapter 的核心难点。`events` 可选:纯 data agent(只回结构化输出、只用 `turn.outputEquals` / `turn.data`)可以不产 events;但一旦要用 `calledTool` / `messageIncludes` / `succeeded` 这类作用域断言,就必须把原始返回映射成 `events`,否则这些断言没有数据可读。
+`send` 是**统一动词**,`Turn.events` 是**统一产物**。区别只在 `send` 内部怎么把原始返回变成 `events` —— 这就是 adapter 的核心难点。`events` 是必填字段:纯 data agent(只回结构化输出、只用 `turn.outputEquals` / `turn.data`)可以传空数组 `[]`;但一旦要用 `calledTool` / `messageIncludes` / `succeeded` 这类作用域断言,就必须把原始返回映射成非空 `events`,否则这些断言没有数据可读。
 
 ## SandboxAgent 契约
 
@@ -300,21 +300,7 @@ experiment.agent    选「连哪个被测对象」(自实现的 adapter)
 
 这些都是**给 adapter 作者复用的工具函数**,不是运行器包在 `agent.send()` 外面的固定编排——除了"沙箱创建时打一次 git 基线、销毁前采一次 diff"这两头是核心自动做的,中间"什么时候写入文件、什么时候调 `t.send()`、什么时候手工跑校验命令"全部是 eval 的 `test(t)` 自己决定,见 [Eval Authoring · 沙箱型](eval-authoring.md#沙箱型手工把文件放进沙箱)。
 
-## 注册与选择
-
-```typescript
-// fasteval.config.ts
-import { defineConfig } from "fasteval";
-import myAgent from "./agents/my-agent.js";
-import supportBot from "./agents/support-bot.js";
-
-export default defineConfig({
-  agents: [myAgent, supportBot],     // 你的自实现 agent
-  // 在 experiments/ 里引用要跑的 agent
-});
-```
-
-内置 coding-agent(`claude-code` / `codex` / `bub` …)从 `fasteval` 导出,在 experiment 文件里引用。要换 agent 或 model,复制一个 experiment 文件改配置。
+没有按名字选 agent 的注册表——一个 config 文件对应一个(或一组固定的)agent,内置 coding-agent(`claude-code` / `codex` / `bub` …)从 `fasteval` 导出,在 experiment 文件里直接引用。要换 agent 或 model,复制一个 experiment 文件改配置,不是靠 `--agent` 这类运行时选择器。
 
 ## 接一个新 agent 要写什么
 

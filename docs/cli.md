@@ -91,21 +91,17 @@ fasteval clean                        # 清掉这些历史运行结果
 ## 输出
 
 ```sh
-fasteval exp compare --json                   # 机器可读结果到 stdout
 fasteval exp compare --junit <path>           # 写 JUnit XML
-fasteval exp compare --verbose                # 流式打印 t.log
 fasteval exp compare --quiet                  # 只出最终汇总
-fasteval exp compare --no-report              # 跳过报告器
 ```
 
-## 干跑与冒烟
+## 干跑
 
 ```sh
 fasteval exp compare --dry        # 只发现、不真正调用 agent / LLM
-fasteval exp compare --smoke      # 最小冒烟:验证 agent / sandbox / key 配好了
 ```
 
-`--dry` 用来检查发现和过滤是否如预期,不烧 token;`--smoke` 用来在长跑前确认环境通了。
+`--dry` 用来检查发现和过滤是否如预期,不烧 token。
 
 ## 环境变量
 
