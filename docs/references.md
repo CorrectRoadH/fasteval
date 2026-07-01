@@ -16,7 +16,7 @@
 
 ### 这次新学到、值得抄的
 
-1. **`/compare`——挑两次运行对比。** playground 靠 `results/<experiment>/<ISO-timestamp>/` 天然分层的目录结构,能选任意两个时间戳的 run,对比整体通过率 / 平均耗时 / per-eval 通过率 delta。fasteval 现在完全没有这个能力——`aggregateRows` 把所有历史 run 合并成一行,选不出"这次 vs 上次"。设计方案见 [Compare](compare.md)。
+1. **`/compare`——挑两次运行对比。** playground 靠 `results/<experiment>/<ISO-timestamp>/` 天然分层的目录结构,能选任意两个时间戳的 run,对比整体通过率 / 平均耗时 / per-eval 通过率 delta。fasteval 现在完全没有这个能力——`aggregateRows` 把所有历史 run 合并成一行,选不出"这次 vs 上次"。这只是 view 里计划新增的一个小 tab,设计方案见 [View · Compare](view.md#compare-挑两次运行对比)。
 2. **eval fixture 目录页(`/evals`)。** 独立于"跑过的结果",单纯浏览 `evals/` 目录下每个 fixture 的 `PROMPT.md` 和文件列表,不用先跑一次才能看"有哪些 eval、prompt 写的什么"。fasteval 的 `view` 目前完全是结果驱动的,没有这种纯浏览eval 定义的入口——值得抄,但优先级低于 compare,先记在这里。
 3. **"每次 run 是独立时间戳快照"这个数据原则。** playground 的 `getExperiment` 保留 `timestamps: string[]` 整个历史列表,`/compare` 就是靠这个地基做的。fasteval 要抄的是这个**原则**(不要在聚合时提前合并掉快照身份),不是照搬它的目录 / API 形状。
 
@@ -28,5 +28,5 @@
 
 ## 相关阅读
 
-- [Compare](compare.md) —— 上面第 1 条学到的东西,具体设计在这篇。
+- [View](view.md) —— 上面几条学到的东西,具体设计在这篇(Compare 是其中一个计划中的小功能)。
 - [Observability](observability.md#结果可视化fasteval-view) —— `fasteval view` 现有能力全貌,对照着看这篇的"还差什么"更清楚。

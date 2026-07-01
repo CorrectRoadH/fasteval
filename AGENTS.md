@@ -20,7 +20,9 @@ fasteval 是一个 TypeScript evals 库。CLI 入口在 `bin/fasteval.mjs`，运
 - `docs/sandbox.md`：沙箱接口和 Docker / 三方后端边界。
 - `docs/runner.md`：发现、调度、并发、缓存、attempt 编排。
 - `docs/experiments.md`：实验矩阵、可对比组、`fasteval exp`。
-- `docs/observability.md`：标准事件流、OTLP trace(canonical = OTel GenAI 语义约定,每 agent 一个薄 mapper,view 只认 canonical)、usage、cost、工件和 `fasteval view`。
+- `docs/observability.md`：标准事件流、OTLP trace(canonical = OTel GenAI 语义约定,每 agent 一个薄 mapper,view 只认 canonical)、usage、cost、工件。
+- `docs/view.md`：本地查看器(`fasteval view`)现状、文档与实现的已知差异、计划中的功能(Compare 等)。
+- `docs/references.md`：调研外部项目(如 Vercel agent-eval playground)学到什么、抄了什么、为什么不抄什么。
 - `docs/cli.md`：CLI 参数模型和命令参考。
 - `docs/getting-started.md`：目标 DX 示例。
 

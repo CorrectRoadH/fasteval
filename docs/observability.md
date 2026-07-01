@@ -6,7 +6,7 @@
 
 ## Transcript → 标准事件流
 
-每个 agent 都吐自己格式的 transcript(Claude Code 一种 JSONL、Codex 另一种、bub 又一种)。直接消费这些就得到处写 `if (agent === ...)`。adapter 的核心活,就是把它**归一化**成那条[标准事件流 `StreamEvent[]`](agents-and-adapters.md#标准事件流adapter-的核心难点) —— 它既是 trace,也是整套断言的唯一数据源,断言和报告只面对它。
+每个 agent 都吐自己格式的 transcript(Claude Code 一种 JSONL、Codex 另一种、bub 又一种)。直接消费这些就得到处写 `if (agent === ...)`。adapter 的核心活,就是把它**归一化**成那条[标准事件流 `StreamEvent[]`](adapters/README.md#标准事件流adapter-的核心难点) —— 它既是 trace,也是整套断言的唯一数据源,断言和报告只面对它。
 
 每个 agent 一个解析器,住在 `o11y/parsers/<agent>.ts`,把原始 JSONL 映射成标准 `StreamEvent[]`。**这是接新 agent 的第二件事**(第一件是 adapter 的 `send`):没有解析器,trace 就退化成不透明字符串。归一化失败不崩:保留原始 JSONL,并在该 eval 的 `result.json` 上标 `parseSuccess: false`。
 
@@ -19,7 +19,9 @@ type ToolName =
   | "glob" | "grep" | "list_dir" | "agent_task" | "unknown";
 ```
 
-core 再从这条流派生两样:`deriveRunFacts(events)`(toolCalls / subagents / parked,供断言,见 [Agents 与 Adapters](agents-and-adapters.md#派生事实core-算共享agent-无关)),以及下面给人/给沙箱内手工跑的验证测试看的 o11y 摘要。
+core 再从这条流派生两样:`deriveRunFacts(events)`(toolCalls / subagents / parked,供断言,见 [Agents 与 Adapters](adapters/README.md#派生事实core-算共享agent-无关)),以及下面给人/给沙箱内手工跑的验证测试看的 o11y 摘要。
+
+原始 transcript 具体怎么从 agent CLI 弄到手(磁盘旁读 / stdout 捕获 / OTLP 推送)、采集层与转换层的边界怎么分,属于"怎么写 adapter"的范畴,见 [Agents 与 Adapters · 采集层](adapters/README.md#采集层原始数据怎么从-agent-cli-弄到手)。
 
 ## o11y 派生摘要
 
@@ -266,24 +268,7 @@ Run totals:  3 evals · 142k tok · $1.12   (agent: claude-code)
 
 ## 结果可视化:`fasteval view`
 
-控制台和 `summary.json` 是「当下」的;但你常常想**事后看图**:这次比上次贵了多少?哪个 agent 性价比高?所以 fasteval 提供一个本地查看器(对标 agent-eval 的 playground:一个读结果目录的 web UI)。
-
-```sh
-fasteval view                         # 起本地 web,自动打开浏览器,读 .fasteval/ 下所有历史运行
-fasteval view .fasteval/<run>/summary.json
-fasteval view --no-open               # 只打印 URL,不打开浏览器
-fasteval view --out .fasteval/report.html  # 导出静态 HTML
-```
-
-它不连任何外部服务,只起本机 web 服务并读 `.fasteval/<时间戳>/` 这些**结构化工件**(每 eval 已带 `usage` + `estimatedCostUSD`),因此能渲染:
-
-- **运行总览** —— pass / fail / error / skip 计数、总 token、总 $。
-- **experiment 对比榜单** —— 同一批 eval 下各个实验配置的通过率 + 平均耗时 + token + 成本并列;agent/model 是实验配置的属性,不是主键。这是评 coding agent 最想要的一张图。
-- **eval attempt 钻取** —— 点开单行看具体 eval 的断言、错误、耗时、用量与样例 JSON。
-- **质量 × 成本散点** —— 每个 eval(或每个 agent)一个点,一眼看出「贵且不准」的角落。
-- **跨运行趋势** —— 每次运行是带时间戳的目录,于是成本 / 通过率能画成随提交变化的折线,抓性能或成本回归。
-- **transcript 钻取** —— 点开单个 eval 看归一化事件流、工具调用、改了哪些文件。
-- **trace 瀑布图** —— 把 `trace.json` 画成时间轴瀑布。只读 canonical(`gen_ai.operation.name` → `kind`、`gen_ai.*`),**不认任何原生 span 名** —— 所以不同 agent 的图天然对齐、可叠加对比;没归一的 span 落 `other`、折叠不渲染。
+控制台和 `summary.json` 是「当下」的;但你常常想**事后看图**:这次比上次贵了多少?哪个 agent 性价比高?所以 fasteval 提供一个本地查看器(对标 agent-eval 的 playground:一个读结果目录的 web UI),只读 `.fasteval/<时间戳>/` 这些**结构化工件**,不连任何外部服务。现状实现、已知的文档差异和计划中的功能(比如挑两次运行对比)见 [View](view.md)。
 
 可视化能力完全建立在「工件结构化 + 带 usage/cost」之上 —— 换句话说,**只要数据采全了,图是免费的**;不想用内置查看器,同一份工件也能喂给下游 dashboard。
 
@@ -333,4 +318,5 @@ defineEval({ reporters: [Braintrust({ project: "weather" })], async test(t) { ..
 
 - [Scoring](scoring.md) —— 作用域断言如何消费 o11y。
 - [Runner](runner.md) —— 报告队列与工件落盘的调度。
-- [Agents 与 Adapters](agents-and-adapters.md) —— 接新 agent 需要的解析器。
+- [Agents 与 Adapters](adapters/README.md) —— 接新 agent 需要的解析器、采集层怎么弄到原始数据。
+- [agent-eval 参考:采集 / 转换 / 落地三层](adapters/ref/agent-eval.md) —— Vercel agent-eval 怎么写 adapter 的学习记录。
