@@ -74,12 +74,12 @@ const evalSourceLines = [
   '  description: "测试 agent 在多轮对话中基于图片内容作答的能力",',
   "",
   "  async test(t) {",
-  '    (await t.sendFile("evals/sample.png", "这张图片里有什么？")).expectOk();',
-  '    (await t.send("图片里的背景是什么颜色？")).expectOk();',
+  '    await t.sendFile("evals/sample.png", "这张图片里有什么？");',
+  '    await t.send("图片里的背景是什么颜色？");',
   '    await t.send("中间那个形状是什么颜色的？");',
   "",
   '    await t.group("三轮都正常收发", () => {',
-  "      // 每轮 send 已各自 .expectOk();succeeded() 再确认整次运行没失败 / 没卡在 HITL。",
+  "      // succeeded() 确认这三轮对话都正常收发，没有失败，也没有卡在 HITL。",
   '      // (注:事件流现在也含 user 消息,所以不要再用 event("message",{count}) 数"轮数"。)',
   "      t.succeeded();",
   "    });",
@@ -158,7 +158,7 @@ const copy = {
     setupTitle: "Evals can have elegant DX too.",
     evalCard: {
       notes: {
-        succeeded: "Each send() already called expectOk() per turn; this confirms the whole run finished without failing or stalling on a human-in-the-loop prompt.",
+        succeeded: "succeeded() confirms all three turns went through cleanly — no failures and no stalls waiting on a human-in-the-loop prompt.",
         recognize: "The regex matches Chinese and English keywords together, so this only passes if the assistant actually named the blue background and white square.",
         followup: "This assertion runs at the run level — it scans every assistant message across all three turns, not just the last reply.",
         gate: "A closedQA judge checks whether the assistant kept grounding every answer in turn one's image; the run only passes with a score at or above 0.7.",
@@ -212,7 +212,7 @@ const copy = {
     setupTitle: "eval 也能有优雅的 DX。",
     evalCard: {
       notes: {
-        succeeded: "每轮 send 已各自调用 expectOk()；这里再确认整次运行没有失败，也没有卡在人工介入(HITL)。",
+        succeeded: "succeeded() 确认这三轮对话都正常收发，没有失败，也没有卡在人工介入(HITL)。",
         recognize: "正则同时匹配中英文关键词，只有助手真的说出蓝色背景和白色方块才算通过。",
         followup: "这是 run 级断言——会扫描整次运行里所有 assistant 消息，而不只是最后一轮回复。",
         gate: "closedQA judge 检查助手是否全程都基于第一轮的图片作答；分数达到 0.7 才算通过。",
