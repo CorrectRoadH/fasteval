@@ -16,18 +16,24 @@ NiceEval is a general-purpose agent eval tool inspired by [eve](https://eve.dev)
 
 After the eval completes, it generates readable reports and lets you view agent behavior details. Convenient for debugging and optimization.
 
+## Why NiceEval when DeepEval, LangFuse, and BrainTrust already exist
+
+NiceEval is an AI-native eval tool. In tools built around Dataset/golden-style Input vs. Expected Output, that shape doesn't fit real agent evaluation well. NiceEval is built for evaluating agents at a finer grain — multi-turn conversations, multi-agent setups, tool calls, skill loading, and more.
+
+It also coexists with LangFuse and BrainTrust: use them for tracing, or upload eval results to both (in progress).
+
 ## Architecture
 
 NiceEval supports two integration modes, depending on whether the system under test needs an isolated sandbox filesystem.
 
-**Mode 1: Sandbox (Docker) — run coding agents like Codex and Claude Code that need a sandbox**
+**Mode 1: Sandbox (Docker, E2B) — run coding agents like Codex and Claude Code that need a sandbox**
 
 ```text
    evals/*.eval.ts
         │
         ▼
    ┌─────────────────────┐
-   │     niceeval        │
+   │     NiceEval        │
    └─────────────────────┘
         │
         │ Agent adapter (official)
@@ -48,7 +54,7 @@ NiceEval supports two integration modes, depending on whether the system under t
         │
         ▼
    ┌─────────────────────┐
-   │     niceeval        │
+   │     NiceEval        │
    └─────────────────────┘
         │
         │ Agent adapter (official, or your own implementation)
@@ -61,37 +67,57 @@ NiceEval supports two integration modes, depending on whether the system under t
    └──────────────────────────────┘
 ```
 
-- **niceeval core** owns discovery, scheduling, scoring, reporting, and artifacts.
+- **NiceEval core** owns discovery, scheduling, scoring, reporting, and artifacts.
 - **Agent adapters** are the open boundary: you decide how to call the system under test.
 - Coding agents that need filesystem isolation run inside the **Docker Sandbox**; your own Web Agent can connect directly, without Docker.
 
 
 ## Example
 
+Running an eval takes two files: the eval itself (what to check) and an experiment (which agent to run it against). The CLI won't run a bare eval id — the experiment in `niceeval exp <experiment> <eval prefix>` is what picks the system under test. Here's a real eval against a directly-connected web agent (full project in [`examples/zh/ai-sdk/`](examples/zh/ai-sdk/)), checking that the agent calls a tool for live weather questions and answers from the tool result instead of making it up:
+
 ```ts
-// evals/button-component.eval.ts
+// evals/eval-tool-call.eval.ts
 import { defineEval } from "niceeval";
-import { commandSucceeded, includes } from "niceeval/expect";
 
 export default defineEval({
-  description: "Build a Button component with label and onClick props.",
+  description: "Verify the agent calls the weather tool and answers from its result",
+
   async test(t) {
-    await t.send("Create src/components/Button.tsx with label and onClick props.");
-
+    const turn = await t.send("What's the weather in Beijing today?");
     t.succeeded();
-    t.sandbox.fileChanged("src/components/Button.tsx");
-    t.check(t.sandbox.file("src/components/Button.tsx"), includes("onClick"));
 
-    const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
-    t.check(test, commandSucceeded());
+    await t.group("calls get_weather with the right city", () => {
+      t.calledTool("get_weather", { input: { city: "Beijing" } });
+      t.messageIncludes(/°C|sunny|cloudy|rain/);
+    });
+
+    const second = await t.send("What about Shanghai tomorrow?");
+    second.messageIncludes("Shanghai");
+
+    t.judge.autoevals
+      .closedQA("Does the reply use the tool's weather data instead of making up a temperature?")
+      .atLeast(0.7);
   },
 });
 ```
 
+```ts
+// experiments/local.ts
+import { defineExperiment } from "niceeval";
+import { webAgent } from "./adapter"; // your agent adapter, pointed at the system under test
+
+export default defineExperiment({
+  agent: webAgent({ baseUrl: "http://127.0.0.1:5188" }),
+});
+```
+
 ```sh
-npx niceeval exp codex-docker button
+npx niceeval exp local eval-tool-call  // run only eval-tool-call under the local experiment
 npx niceeval view
 ```
+
+For coding agents that need an isolated workspace (Codex, Claude Code plugins/skills), see [`examples/zh/coding-agent-skill/`](examples/zh/coding-agent-skill/): evals there use `t.sandbox.uploadDirectory()` to seed the workspace, `t.fileChanged()` / `t.file()` to check what changed, and `t.sandbox.runCommand()` to run tests.
 
 ## Quick Start
 
@@ -127,26 +153,12 @@ Official Adapters
 
 ## Documentation
 
-- [Mintlify docs site](https://niceeval.com/docs/)
-- [Mintlify docs source](docs-site/index.mdx)
-- [Documentation home](docs/README.md)
-- [Getting Started](docs/getting-started.md)
-- [Authoring](docs/eval-authoring.md)
-- [Scoring](docs/scoring.md)
-- [Agents and Adapters](docs/adapters/README.md)
-- [Sandbox](docs/sandbox.md)
-- [Runner](docs/runner.md)
-- [Experiments](docs/experiments.md)
-- [Observability](docs/observability.md)
-- [CLI](docs/cli.md)
-- [Source Map](docs/source-map.md)
+- [Quickstart](https://niceeval.com/docs/quickstart)
 
-## Acknowledgements
-
+# Acknowledgements
 This project was inspired by — or had its code learned by AI from — the projects below:
+[eve](https://eve.dev)
+[agent eval](https://github.com/vercel-labs/agent-eval)
+[ponytail](https://github.com/DietrichGebert/ponytail)
 
-- [eve](https://eve.dev)
-- [agent eval](https://github.com/vercel-labs/agent-eval)
-- [ponytail](https://github.com/DietrichGebert/ponytail)
-
-Thanks to the communities behind them.
+Thanks to the following communities
