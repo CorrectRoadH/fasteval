@@ -296,9 +296,10 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .is-open .chev { transform: rotate(45deg); }
 .chev-icon {
-  display: inline-block; /* Tailwind preflight resets svg to display:block,会把名字挤到下一行;这里挨着文字排,必须保持 inline */
+  display: inline-block;
   width: 14px;
   height: 14px;
+  flex-shrink: 0;
   margin-right: 9px;
   color: var(--muted);
   vertical-align: -2px;
@@ -416,8 +417,13 @@ tbody tr:last-child td { border-bottom: 0; }
   letter-spacing: 0.06em;
 }
 .eval-id {
+  display: flex;
+  align-items: center;
   overflow-wrap: anywhere;
   font-weight: 560;
+}
+.eval-id:not(:has(.chev-icon)) {
+  padding-left: 23px; /* 14px 图标 + 9px 间距,单轮 eval 没有展开箭头,靠 padding 补位对齐 */
 }
 .assertions-cell {
   min-width: 0;

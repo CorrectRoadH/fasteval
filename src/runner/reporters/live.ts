@@ -1,6 +1,6 @@
 // Live terminal reporter:在 TTY 终端里渲染实时状态表,每个 (eval, who) 对占一行。
 // spinner 每 80ms 刷新;attempt 完成后行内显示 ✓/✗/~ 符号。
-// onRunComplete 时清除状态表,打印完整结果 + 汇总(与 Console reporter 格式一致)。
+// onRunComplete 时清除状态表,按 eval → config → attempt 分组打印完整结果 + 汇总。
 
 import type { EvalResult, Reporter, RunShape, RunSummary } from "../../types.ts";
 import { t } from "../../i18n/index.ts";
@@ -185,36 +185,55 @@ export function Live(rows: LiveRow[], totalAttempts: number): LiveReporter {
       draw(spinFrame);
       clearDisplay();
 
-      // 打印每条结果(与 Console reporter 格式一致)
+      // 按 eval → config(agent/model) → attempt 分组打印(而非完成顺序平铺),方便在大批量
+      // compare 结果里按行读:同一 eval 下各 config 相邻,同一 config 下各次重试相邻。
+      const byEval = new Map<string, Map<string, EvalResult[]>>();
       for (const result of pendingResults) {
-        const sym = OUTCOME_SYM[result.outcome] ?? "?";
-        const tok = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
-        const tokStr =
-          tok > 0 ? `${fmtTokens(tok)} tok` : (result.usage?.requests ?? 0) > 0 ? `— tok` : `0 tok`;
-        const cost = result.estimatedCostUSD !== undefined ? `  $${result.estimatedCostUSD.toFixed(3)}` : "";
+        if (!byEval.has(result.id)) byEval.set(result.id, new Map());
         const who = result.model ? `${result.agent}/${result.model}` : result.agent;
-        const meta = `(${fmtDuration(result.durationMs)}  ${tokStr}${cost})`;
-        const label = result.outcome === "passed" ? "" : ` ${formatOutcome(result.outcome)}`;
-        process.stdout.write(`  ${sym} ${result.id}${label}  [${who}]  ${meta}\n`);
+        const byWho = byEval.get(result.id)!;
+        if (!byWho.has(who)) byWho.set(who, []);
+        byWho.get(who)!.push(result);
+      }
 
-        if (result.skipReason) process.stdout.write(`      ○ ${t("report.skipped")}: ${result.skipReason}\n`);
-        if (result.error) process.stdout.write(`      ! ${t("report.error")}: ${truncate(result.error, 400)}\n`);
+      for (const evalId of [...byEval.keys()].sort()) {
+        process.stdout.write(`${evalId}\n`);
+        const byWho = byEval.get(evalId)!;
+        for (const who of [...byWho.keys()].sort()) {
+          process.stdout.write(`  [${who}]\n`);
+          const attempts = byWho.get(who)!.sort((a, b) => a.attempt - b.attempt);
+          const multiAttempt = attempts.length > 1;
+          for (const result of attempts) {
+            const sym = OUTCOME_SYM[result.outcome] ?? "?";
+            const tok = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
+            const tokStr =
+              tok > 0 ? `${fmtTokens(tok)} tok` : (result.usage?.requests ?? 0) > 0 ? `— tok` : `0 tok`;
+            const cost = result.estimatedCostUSD !== undefined ? `  $${result.estimatedCostUSD.toFixed(3)}` : "";
+            const meta = `(${fmtDuration(result.durationMs)}  ${tokStr}${cost})`;
+            const attemptLabel = multiAttempt ? `#${result.attempt + 1} ` : "";
+            const outcomeLabel = result.outcome === "passed" ? "" : `${formatOutcome(result.outcome)}  `;
+            process.stdout.write(`    ${sym} ${attemptLabel}${outcomeLabel}${meta}\n`);
 
-        let lastGroup: string | undefined;
-        for (const a of result.assertions) {
-          if (a.passed) continue;
-          if (a.group !== undefined && a.group !== lastGroup) {
-            process.stdout.write(`      ▸ ${a.group}\n`);
+            if (result.skipReason) process.stdout.write(`      ○ ${t("report.skipped")}: ${result.skipReason}\n`);
+            if (result.error) process.stdout.write(`      ! ${t("report.error")}: ${truncate(result.error, 400)}\n`);
+
+            let lastGroup: string | undefined;
+            for (const a of result.assertions) {
+              if (a.passed) continue;
+              if (a.group !== undefined && a.group !== lastGroup) {
+                process.stdout.write(`      ▸ ${a.group}\n`);
+              }
+              lastGroup = a.group;
+              const sev = a.severity === "gate" ? t("report.gate") : t("report.soft");
+              const thr = a.threshold !== undefined
+                ? t("report.assertionThreshold", { score: a.score.toFixed(2), threshold: a.threshold })
+                : "";
+              const indent = a.group !== undefined ? "        " : "      ";
+              process.stdout.write(
+                `${indent}- ${sev}: ${a.name}${thr}${a.detail ? ` — ${truncate(a.detail, 300)}` : ""}\n`,
+              );
+            }
           }
-          lastGroup = a.group;
-          const sev = a.severity === "gate" ? t("report.gate") : t("report.soft");
-          const thr = a.threshold !== undefined
-            ? t("report.assertionThreshold", { score: a.score.toFixed(2), threshold: a.threshold })
-            : "";
-          const indent = a.group !== undefined ? "        " : "      ";
-          process.stdout.write(
-            `${indent}- ${sev}: ${a.name}${thr}${a.detail ? ` — ${truncate(a.detail, 300)}` : ""}\n`,
-          );
         }
       }
 

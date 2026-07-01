@@ -181,6 +181,10 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
 
   const results: EvalResult[] = [];
   const passedKeys = new Set<string>();
+  // errored = 框架/环境层面的意外(超时、adapter 崩、eval 脚本抛异常……),不是 agent 表现的信号。
+  // 同 key 一旦 errored 就会确定性地重复 error,再跑 runs 里剩下的次数纯烧钱;只有 failed(断言
+  // 真的没过)才代表 agent 行为的样本,值得跑满 runs 去测通过率。earlyExit 开时两者都提前收尾。
+  const erroredKeys = new Set<string>();
   const budgetSpent = new Map<string, number>();
   const budgetReported = new Set<string>();
 
@@ -191,7 +195,7 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
   // 未显式指定时跟 maxConcurrency 走——各 backend 的推荐值已在 cli 层写进 maxConcurrency 默认值。
   const sandboxSem = Effect.runSync(Effect.makeSemaphore(opts.maxConcurrency));
 
-  // earlyExit:为每个 key 各建一个 AbortController。某 attempt 通过时 abort 它,
+  // earlyExit:为每个 key 各建一个 AbortController。某 attempt 通过或 errored 时 abort 它,
   // 让并发进行中的同 key attempt 通过 signal 尽早退出,而不只是等排队的才能被跳过。
   const evalAbortControllers = new Map<string, AbortController>();
   for (const a of attempts) {
@@ -218,8 +222,9 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
       attempts,
       (a) =>
         Effect.gen(function* () {
-            // 早停:同 key 已通过且开了 earlyExit → 跳过未启动的 attempt。
-            if (a.run.earlyExit && passedKeys.has(a.key)) {
+            // 早停:同 key 已通过,或已 errored(重跑只会重复同一个框架错误)且开了 earlyExit
+            // → 跳过未启动的 attempt。
+            if (a.run.earlyExit && (passedKeys.has(a.key) || erroredKeys.has(a.key))) {
               yield* Effect.promise(() =>
                 emitReporterEvent(opts.reporters, {
                   type: "run:earlyExit",
@@ -265,9 +270,13 @@ export async function runEvals(opts: RunOptions): Promise<RunSummary> {
             if (result.outcome === "passed") {
               passedKeys.add(a.key);
               evalAc?.abort(); // 让同 key 并发 attempt 尽早退出
-            } else if (a.run.earlyExit && passedKeys.has(a.key)) {
-              // 并发情况:另一个 attempt 已通过后本 attempt 才完成(被 abort 后产出 errored),不计入结果。
+            } else if (a.run.earlyExit && (passedKeys.has(a.key) || erroredKeys.has(a.key))) {
+              // 并发情况:同 key 另一个 attempt 已通过/已 errored 后本 attempt 才完成
+              // (被 abort 后产出 errored),不计入结果。
               return;
+            } else if (result.outcome === "errored") {
+              erroredKeys.add(a.key);
+              evalAc?.abort(); // 框架层面的错误会确定性重复,让同 key 剩余 attempt 尽早退出
             }
 
             results.push(result);

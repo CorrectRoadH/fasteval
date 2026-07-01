@@ -42,6 +42,7 @@ fixtures/button   codex         pass@5 = 3/5 (60%)   mean 41s · 72k tok · $0.3
 
 - 每个 eval 配一个 `AbortController`。
 - 某 attempt 通过且 `earlyExit` 开 → `abort()` 同 eval 其余 attempt;被 abort 的不计入分母。
+- 某 attempt `errored`(框架/环境层面的意外,不是断言没过)且 `earlyExit` 开 → 同样 `abort()` 其余 attempt。errored 通常会确定性重复,跑满 `runs` 只是重复烧同一个错误;只有 `failed` 才是 agent 行为的样本,值得跑满 `runs` 测通过率。
 - 默认开;`--no-early-exit` 关(想要完整通过率分布时)。
 
 ## 预算护栏(budget)

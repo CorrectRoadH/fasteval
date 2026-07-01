@@ -15,6 +15,6 @@ export default defineEval({
     });
 
     // .atLeast(0.9) = 硬 gate:回答里没有湿度信息 → mock judge 给 0.3 → 不够阈值 → 红行 + eval failed。
-    t.judge.score("回答是否同时包含了温度和湿度信息?").atLeast(0.9);
+    t.judge.autoevals.closedQA("回答是否同时包含了温度和湿度信息?").atLeast(0.9);
   },
 });
