@@ -16,15 +16,13 @@
 | **Session** | `t.newSession()` 返回的一条独立会话线 | `session.succeeded()` / `session.calledTool()` 等看这个 session 当时已经发生的事件 |
 | **Turn** | 一次 `t.send()` 返回的一轮交互结果 | `turn.succeeded()` / `turn.calledTool()` 等只看这一轮自己的事件 |
 
-它们共享的是**作用域断言词汇**和 **judge 接收者模型**,不是所有子函数完全一致。规则是:**作用域由你调用在哪个对象上决定,不由断言名字决定。** `t.newSession()` 返回的是独立 session,但仍属于同一次 eval run;这些 session 的事件会一起进入 `t.succeeded()` / `t.calledTool()` / `t.eventsSatisfy()` 等 `t.*` 断言。
+在**作用域断言**这一层,`t` / `session` / `turn` 就是同一组函数,只是 scope binding 不同。规则是:**作用域由你调用在哪个对象上决定,不由断言名字决定。** `t.newSession()` 返回的是独立 session,但仍属于同一次 eval run;这些 session 的事件会一起进入 `t.succeeded()` / `t.calledTool()` / `t.eventsSatisfy()` 等 `t.*` 断言。
 
-- `t` 是 eval run 的主上下文:负责驱动主 session、开新 session、记录值级断言,沙箱型时还暴露 `t.sandbox`。
-- `session` 是一条独立会话线:复用会话驱动 API 和同一套作用域断言 / judge,但不拥有 `t.check`、`t.require`、`t.sandbox` 这些 run 级能力。
-- `turn` 是一次交互的不可变结果:复用同一套作用域断言 / judge,但不再驱动后续会话;它额外有 `turn.expectOk()` / `turn.outputEquals()` / `turn.outputMatches()` 这类单轮结果 helper。
+其它子函数按对象职责分开:驱动 API 只在 `t` / `session` 上,结果读取字段按 `t` / `session` / `turn` 各自的数据形状给,`t.check` / `t.sandbox` 这类 run 级能力不下放到 `session` / `turn`。
 
 ## API 分组速查
 
-### 对话与轮次
+### 会话驱动与控制 API
 
 | API | 作用 | 备注 |
 |---|---|---|
@@ -33,15 +31,22 @@
 | `t.requireInputRequest(filter?)` | 断言恰好有一个待处理输入请求,并返回它 | gate;filter 可匹配工具名、action input、prompt、display、option ids |
 | `await t.respond(...responses)` | 回答指定待处理输入请求 | 每个 response 形如 `{ request, optionId }`;响应会作为下一轮发送 |
 | `await t.respondAll(optionId)` | 用同一 option 回答所有待处理输入请求 | 响应会作为下一轮发送 |
-| `t.reply` | 最后一条 assistant 消息 | 常用于值级 matcher;不是 `t.judge` 的默认材料 |
-| `t.sessionId` | 当前主会话 id | adapter 返回时填入;用于 resume / 调试 |
-| `t.events` | 主 session 目前已捕获的强类型事件流 | 即时读取主 session;`t.*` 最终断言会聚合全部 session |
 | `t.newSession()` | 开一条独立会话线 | 返回 `session`;事件仍汇入 `t.*` run 级断言 |
 | `session.send(input)` | 给独立 session 发一轮输入 | 返回 `turn`;不影响主 session 的 resume 状态 |
 | `session.sendFile(text, path, mediaType?)` | 给独立 session 发带本地文件的一轮输入 | 与 `t.sendFile` 同形,但归属这个 session |
 | `session.requireInputRequest(filter?)` | 在这个 session 里断言恰好有一个待处理输入请求 | gate;避免多 session 时误匹配其它 session |
 | `await session.respond(...responses)` | 回答这个 session 的指定待处理输入请求 | 与 `t.respond` 同形 |
 | `await session.respondAll(optionId)` | 用同一 option 回答这个 session 的所有待处理输入请求 | 与 `t.respondAll` 同形 |
+
+`turn` 是一次 `send` 的不可变结果,不负责继续驱动会话。下一轮仍然从 `t` 或对应 `session` 调 `send` / `respond`。
+
+### 结果读取字段
+
+| API | 作用 | 备注 |
+|---|---|---|
+| `t.reply` | 主 session 最后一条 assistant 消息 | 常用于值级 matcher;不是 `t.judge` 的默认材料 |
+| `t.sessionId` | 当前主会话 id | adapter 返回时填入;用于 resume / 调试 |
+| `t.events` | 主 session 目前已捕获的强类型事件流 | 即时读取主 session;`t.*` 最终断言会聚合全部 session |
 | `session.reply` | 这个 session 的最后一条 assistant 消息 | 不读主 session |
 | `session.events` | 这个 session 已捕获的事件流 | `session.*` 作用域断言读同一份材料 |
 | `session.sessionId` | 这个 session 的 id | adapter 返回时填入;用于 resume / 调试 |
@@ -53,11 +58,37 @@
 
 ### 作用域断言共享词汇
 
-下表这些 API 在 `t.*` / `session.*` / `turn.*` 上同名存在,可以共用同一套实现,只更换接收者绑定的数据:
+下表这些 API 在 `t.*` / `session.*` / `turn.*` 上同名存在。它们应该是同一组函数 / 同一套实现,只更换接收者绑定的数据:
 
 - `t.*`:本次 attempt 的全部 session 和全部 turn,在 `test` 结束后聚合评估。
 - `session.*`:这条 session 在断言记录时已经发生的事件。
 - `turn.*`:这一轮自己的事件和用量。
+
+```typescript
+import { defineEval } from "fasteval";
+
+export default defineEval({
+  description: "同名断言在 t / session / turn 上只换作用域",
+  async test(t) {
+    const firstTurn = await t.send("查一下布鲁克林天气。");
+
+    // turn.*:只看第一轮自己的事件和消息
+    firstTurn.succeeded();
+    firstTurn.calledTool("get_weather", { input: { city: "Brooklyn" } });
+
+    const followup = t.newSession();
+    await followup.send("查一下旧金山天气。");
+
+    // session.*:只看 followup 这条独立 session
+    followup.succeeded();
+    followup.calledTool("get_weather", { input: { city: "San Francisco" } });
+
+    // t.*:test 结束后聚合主 session + followup session 的全部轮次
+    t.succeeded();
+    t.calledTool("get_weather", { count: 2 });
+  },
+});
+```
 
 | API 后缀 | 作用 | 来源 |
 |---|---|---|
