@@ -296,6 +296,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .is-open .chev { transform: rotate(45deg); }
 .chev-icon {
+  display: inline-block; /* Tailwind preflight resets svg to display:block,会把名字挤到下一行;这里挨着文字排,必须保持 inline */
   width: 14px;
   height: 14px;
   margin-right: 9px;
