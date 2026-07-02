@@ -1,6 +1,6 @@
 import { defineAgent } from "niceeval/adapter";
 import type { Agent } from "niceeval/adapter";
-import type { StreamEvent, Usage } from "niceeval";
+import type { StreamEvent, ToolName, Usage } from "niceeval";
 import type { AgentEvent, AgentResponse } from "../src/protocol.ts";
 
 /**
@@ -78,9 +78,18 @@ export function webAgent(opts: WebAgentOptions): Agent {
   });
 }
 
-/** AgentEvent → niceeval StreamEvent:只有 action.called 需要补 canonical 工具名;其余结构一致。 */
+/** wire 上 `tool` 是普通 string;收窄回 niceeval 的 canonical `ToolName`,认不出的落 "unknown"。 */
+const TOOL_NAMES: ReadonlySet<string> = new Set([
+  "file_read", "file_write", "file_edit", "shell", "web_fetch", "web_search",
+  "glob", "grep", "list_dir", "agent_task", "unknown",
+]);
+
+/** AgentEvent → niceeval StreamEvent:服务端(fromAiSdk)已归一好 canonical 工具名,这里只收窄类型。 */
 function toStreamEvent(event: AgentEvent): StreamEvent {
-  if (event.type === "action.called") return { ...event, tool: "unknown" };
+  if (event.type === "action.called") {
+    const tool: ToolName = event.tool && TOOL_NAMES.has(event.tool) ? (event.tool as ToolName) : "unknown";
+    return { ...event, tool };
+  }
   return event;
 }
 
@@ -88,6 +97,7 @@ function toUsage(usage: NonNullable<AgentResponse["usage"]>): Usage {
   return {
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
     requests: usage.requests,
   };
 }

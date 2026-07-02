@@ -17,8 +17,10 @@ export default defineEval({
       t.messageIncludes(/°C|气温|天气|晴|多云|雨/);
     });
 
+    // 「是否走了工具」由上面的 t.calledTool 确定性把关;judge 只看对话文本、看不到工具调用,
+    // criteria 只评回复本身的质量。
     t.judge.autoevals
-      .closedQA("助手是否基于工具返回的天气数据作答，而不是凭空编造温度？")
+      .closedQA("助手是否给出了具体的天气数据(温度或天气状况)，而不是拒绝回答或含糊其辞？")
       .atLeast(0.7);
   },
 });

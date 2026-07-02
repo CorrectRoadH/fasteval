@@ -8,6 +8,7 @@ export type JsonValue =
 
 export type AgentEvent =
   | { type: "message"; role: "assistant" | "user"; text: string }
+  | { type: "thinking"; text: string }
   | { type: "action.called"; callId: string; name: string; input: JsonValue; tool?: string }
   | {
       type: "action.result";
@@ -40,6 +41,7 @@ export interface AgentRequest {
 export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens?: number;
   requests?: number;
 }
 

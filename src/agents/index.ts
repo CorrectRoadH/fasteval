@@ -4,6 +4,9 @@ export { defineAgent, defineSandboxAgent } from "../define.ts";
 export { shared } from "./shared.ts";
 export type { Shared } from "./shared.ts";
 
+export { fromAiSdk } from "./ai-sdk.ts";
+export type { AiSdkResultLike, AiSdkStepLike, AiSdkToolCallLike, AiSdkToolResultLike, AiSdkUsageLike } from "./ai-sdk.ts";
+
 export { BUILTIN_AGENTS } from "./builtin.ts";
 export { claudeCodeAgent } from "./claude-code.ts";
 export { codexAgent } from "./codex.ts";

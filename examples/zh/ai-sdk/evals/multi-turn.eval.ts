@@ -17,6 +17,8 @@ export default defineEval({
     t.calledTool("get_weather", { input: { city: "北京" } });
     second.messageIncludes("北京");
 
-    t.judge.autoevals.closedQA("是否先正确回答了 1+1=2，又基于天气工具回答了北京天气问题？").gate(0.8);
+    // 「是否调了天气工具」由上面的 t.calledTool 确定性把关;judge 的默认材料只有对话文本、
+    // 看不到工具调用记录,criteria 别要求它验证工具使用,否则永远判 0。
+    t.judge.autoevals.closedQA("是否先正确回答了 1+1=2，又给出了北京的具体天气信息(温度或天气状况)？").gate(0.8);
   },
 });

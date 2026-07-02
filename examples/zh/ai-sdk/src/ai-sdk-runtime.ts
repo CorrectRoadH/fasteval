@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { generateText, streamText, stepCountIs, tool, convertToModelMessages, type ModelMessage, type UIMessage, type ToolSet } from "ai";
+import { fromAiSdk } from "niceeval/adapter";
 import { z } from "zod/v4";
-import type { AgentEvent, AgentRequest, AgentResponse, AgentUsage, JsonValue, RequestFile } from "./protocol.ts";
+import type { AgentEvent, AgentRequest, AgentResponse, AgentUsage, RequestFile } from "./protocol.ts";
 import { createFastevalTrace } from "./niceeval-observability.ts";
 import { calculate, getSession, getWeather, rememberAiTurn, sessionMessages, webSearch } from "./assistant.ts";
 import { modelSupportsVision, resolveModel } from "./models.ts";
@@ -17,52 +17,25 @@ const SYSTEM_PROMPT = `
 5. 普通闲聊不要调用任何工具。回复保持中文、友好、简洁。
 `.trim();
 
-function buildTools(
-  record: <T extends JsonValue>(name: string, input: JsonValue, run: () => T) => T,
-): ToolSet {
+// 工具本体不掺任何记录逻辑 —— 事件流由 fromAiSdk 从 generateText 的 steps 里直接取
+// (AI SDK 原生带 toolCallId,不必再包一层 recorder 合成 callId)。
+function buildTools(): ToolSet {
   return {
     get_weather: tool({
       description: "查询某个城市的当前天气。需要实时天气时调用。",
       inputSchema: z.object({ city: z.string().min(1) }),
-      execute: async (input: { city: string }) => record("get_weather", { city: input.city }, () => getWeather(input)),
+      execute: async (input: { city: string }) => getWeather(input),
     }),
     calculate: tool({
       description: "计算一个四则运算表达式(支持 + - * / 和括号)。需要精确计算时调用。",
       inputSchema: z.object({ expression: z.string().min(1) }),
-      execute: async (input: { expression: string }) =>
-        record("calculate", { expression: input.expression }, () => calculate(input)),
+      execute: async (input: { expression: string }) => calculate(input),
     }),
     web_search: tool({
       description: "搜索网络获取资料摘要。需要查资料时调用。",
       inputSchema: z.object({ query: z.string().min(1) }),
-      execute: async (input: { query: string }) => record("web_search", { query: input.query }, () => webSearch(input)),
+      execute: async (input: { query: string }) => webSearch(input),
     }),
-  };
-}
-
-// 无副作用版本的工具集，供 streamChat (UI 流式端点) 使用。
-function buildSimpleTools(): ToolSet {
-  const noop = <T extends JsonValue>(_name: string, _input: JsonValue, run: () => T): T => run();
-  return buildTools(noop);
-}
-
-function makeRecorder(events: AgentEvent[]) {
-  return function record<T extends JsonValue>(name: string, input: JsonValue, run: () => T): T {
-    const callId = `${name}-${randomUUID()}`;
-    events.push({ type: "action.called", callId, name, input, tool: "unknown" });
-    try {
-      const output = run();
-      events.push({ type: "action.result", callId, output, status: "completed" });
-      return output;
-    } catch (error) {
-      events.push({
-        type: "action.result",
-        callId,
-        output: { error: error instanceof Error ? error.message : String(error) },
-        status: "failed",
-      });
-      throw error;
-    }
   };
 }
 
@@ -87,7 +60,7 @@ export async function streamChat(
     model: resolvedModel,
     system: SYSTEM_PROMPT,
     messages,
-    tools: buildSimpleTools(),
+    tools: buildTools(),
     stopWhen: stepCountIs(5),
     abortSignal: signal,
   });
@@ -96,7 +69,6 @@ export async function streamChat(
 /** eval adapter 用：等完整结果，返回 AgentResponse JSON。 */
 export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSignal): Promise<AgentResponse> {
   const session = getSession(request.sessionId);
-  const events: AgentEvent[] = [];
   const modelId = request.model ?? process.env.AGENT_MODEL ?? "deepseek-v4-flash";
   const model = resolveModel(modelId);
 
@@ -116,7 +88,7 @@ export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSigna
       model,
       system: SYSTEM_PROMPT,
       messages,
-      tools: buildTools(makeRecorder(events)),
+      tools: buildTools(),
       stopWhen: stepCountIs(5),
       abortSignal: signal,
     });
@@ -130,12 +102,15 @@ export async function handleAiSdkTurn(request: AgentRequest, signal?: AbortSigna
     throw error;
   }
 
-  const usage = normalizeUsage(result);
+  // 通道 0 直构:steps 里带 toolCallId 的完整调用记录 + 全 step 聚合 usage,一步转成标准事件流。
+  // fromAiSdk 产出的只有 message / thinking / action.* —— 是 AgentEvent 的子集。
+  const converted = fromAiSdk(result);
+  const events = converted.events as AgentEvent[];
+  const usage = converted.usage;
   modelSpan.end(usageAttrs(usage));
 
   const reply = result.text.trim();
   rememberAiTurn(session, request.message, reply);
-  events.push({ type: "message", role: "assistant", text: reply });
 
   const lastAction = events.findLast((e) => e.type === "action.called")?.name ?? "chat";
   turn.end({ "assistant.last_action": lastAction });
@@ -178,20 +153,3 @@ function stripImageParts(messages: ModelMessage[]): ModelMessage[] {
   });
 }
 
-function normalizeUsage(result: unknown): AgentUsage | undefined {
-  const rec = asRecord(result);
-  if (!rec) return undefined;
-  const usage = asRecord(rec.usage) ?? asRecord(rec.totalUsage) ?? rec;
-  const inputTokens = numberField(usage.inputTokens) ?? numberField(usage.promptTokens) ?? 0;
-  const outputTokens = numberField(usage.outputTokens) ?? numberField(usage.completionTokens) ?? 0;
-  if (!inputTokens && !outputTokens) return undefined;
-  return { inputTokens, outputTokens, requests: 1 };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
-}
-
-function numberField(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}

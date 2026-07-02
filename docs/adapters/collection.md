@@ -72,11 +72,11 @@ trace 另算:CLI 会发 OTel?→ 写 tracing 块 + mapper;不会 → transcript 
 
 ### 通道 0 示例:AI SDK 直构(接自己的 agent)
 
-AI SDK 的返回天生带显式 `toolCallId`、分 step、带 usage——映射几乎是逐字段抄写,这就是"控制运行时 = 保真上限"的含义(字段名按 AI SDK v5;v4 叫 `args` / `result` / `promptTokens`):
+AI SDK 的返回天生带显式 `toolCallId`、分 step、带 usage——映射几乎是逐字段抄写,这就是"控制运行时 = 保真上限"的含义。这层映射(含 v4/v5 字段名漂移:`args`/`input`、`result`/`output`、`promptTokens`/`inputTokens`)已收进 `fromAiSdk`(`niceeval/adapter` 导出,`src/agents/ai-sdk.ts`,结构化 typing、不依赖 `ai` 包):
 
 ```typescript
 // agents/my-ai-sdk-agent.ts
-import { defineAgent } from "niceeval/adapter";
+import { defineAgent, fromAiSdk } from "niceeval/adapter";
 import { generateText } from "ai";
 
 export default defineAgent({
@@ -86,28 +86,13 @@ export default defineAgent({
     const result = await generateText({
       model: myModel(ctx.model), tools, prompt: input.text, abortSignal: ctx.signal,
     });
-
-    const events: StreamEvent[] = [];
-    for (const step of result.steps) {
-      for (const c of step.toolCalls)
-        events.push({ type: "action.called", callId: c.toolCallId, name: c.toolName,
-                      input: c.input as JsonValue, tool: normalizeToolName(c.toolName) });
-      for (const r of step.toolResults)
-        events.push({ type: "action.result", callId: r.toolCallId,
-                      output: r.output as JsonValue, status: "completed" });
-      if (step.text) events.push({ type: "message", role: "assistant", text: step.text });
-    }
-    return {
-      events,
-      data: result.text,
-      status: "completed",
-      usage: { inputTokens: result.totalUsage.inputTokens ?? 0, outputTokens: result.totalUsage.outputTokens ?? 0 },
-    };
+    // steps 里带 toolCallId 的完整调用记录 + 全 step 聚合 usage → 标准事件流,一行转完
+    return { ...fromAiSdk(result), data: result.text, status: "completed" };
   },
 });
 ```
 
-对照矩阵读:`toolCallId` 直接就是 `callId`(不需要兜底),per-step usage 用 `totalUsage` 聚合(eve 按 step 记的粒度这里是可得而未取,见 [eve 笔记 · 启发 3](reference/eve-protocol.md#对-niceeval-适配器设计的启发)),时间轨可选接 AI SDK 的 `experimental_telemetry`(OTel spans → mapper,remote agent 也能有瀑布图)。
+`fromAiSdk` 做的事,对照矩阵读:`toolCallId` 直接就是 `callId`(不需要兜底);v5+ 的 `step.content` parts 自带真实顺序(reasoning → tool-call → tool-result → text),时序保真;`tool-error` part 映射成 `status: "failed"` 的 `action.result`,喂 `noFailedActions()`;usage 用 `totalUsage`(全 step 聚合)优先(eve 按 step 记的粒度这里是可得而未取,见 [eve 笔记 · 启发 3](reference/eve-protocol.md#对-niceeval-适配器设计的启发));时间轨可选接 AI SDK 的 `experimental_telemetry`(OTel spans → mapper,remote agent 也能有瀑布图)。完整可跑的版本见 `examples/zh/ai-sdk/`(HTTP web agent:服务端 `fromAiSdk` 直构,adapter 透传)。
 
 自有 HTTP 服务同理走通道 0:协议是服务的私事,但如果服务是你写的,**让它直接返回 `StreamEvent` 兼容的 JSON 是最省的适配**——`toStreamEvents` 退化成透传。
 
