@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Highlight, themes } from "prism-react-renderer";
 import {
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import { initAnalytics, track } from "./analytics";
+import { evalExamples } from "./eval-examples";
 import whyWeNeedEvalsEn from "./blog/posts/why-we-need-evals/en.mdx?raw";
 import whyWeNeedEvalsZh from "./blog/posts/why-we-need-evals/zh.mdx?raw";
 
@@ -110,75 +111,6 @@ function getRoute() {
   return { name: "home" };
 }
 
-// 改编自 examples/zh/ai-sdk/evals/multi-turn-image.eval.ts，逐行对应 en/zh 两份，
-// 好让下面的 evalFileMeta（行号 -> 注解 key）在两种语言下指向同一批代码行。
-const zhSourceLines = [
-  'import { defineEval } from "niceeval";',
-  "",
-  "export default defineEval({",
-  '  description: "评估 agent 在多轮对话中多模态的能力",',
-  "",
-  "  async test(t) {",
-  '    const first = await t.sendFile("evals/sample.png", "这张图片里有什么？");',
-  "    t.succeeded();",
-  "    first.usedNoTools();",
-  '    const second = await t.send("图片里的背景是什么颜色？");',
-  "    second.messageIncludes(/蓝|blue|白|方块|square/i);",
-  '    await t.send("中间那个形状是什么颜色的？");',
-  "",
-  '    await t.group("后续追问能联系图片上下文", () => {',
-  "      t.messageIncludes(/白|white/i);",
-  "    });",
-  "",
-  "    t.judge.autoevals",
-  '      .closedQA("助手是否在三轮对话中始终基于第一轮发送的图片内容作答，而不是凭空发挥？")',
-  "      .gate(0.7);",
-  "  },",
-  "});",
-];
-
-const enSourceLines = [
-  'import { defineEval } from "niceeval";',
-  "",
-  "export default defineEval({",
-  '  description: "Evaluate an agent\'s multimodal ability across a multi-turn conversation",',
-  "",
-  "  async test(t) {",
-  '    const first = await t.sendFile("evals/sample.png", "What is in this image?");',
-  "    t.succeeded();",
-  "    first.usedNoTools();",
-  '    const second = await t.send("What color is the background?");',
-  "    second.messageIncludes(/blue|white|square/i);",
-  '    await t.send("What color is the shape in the middle?");',
-  "",
-  '    await t.group("follow-ups stay grounded in the image context", () => {',
-  "      t.messageIncludes(/white/i);",
-  "    });",
-  "",
-  "    t.judge.autoevals",
-  '      .closedQA("Does the assistant keep grounding every answer in the turn-one image, across all three turns, instead of making things up?")',
-  "      .gate(0.7);",
-  "  },",
-  "});",
-];
-
-const evalFileMeta = {
-  gateBadge: "1/0.7",
-  gateLine: 20,
-  // 三种可点开的行：turn* 是发送的消息(点开看模拟回复)，其余是断言(点开看解释)。en/zh 两份代码逐行对应，行号共用。
-  highlights: {
-    7: "turn1",
-    8: "succeeded",
-    9: "noTools",
-    10: "turn2",
-    11: "recognize",
-    12: "turn3",
-    15: "followup",
-    20: "gate",
-  },
-  replyLines: new Set(["turn1", "turn2", "turn3"]),
-};
-
 const codeTheme = {
   ...themes.vsDark,
   plain: { ...themes.vsDark.plain, backgroundColor: "transparent" },
@@ -186,7 +118,7 @@ const codeTheme = {
 
 const copy = {
   en: {
-    meta: "NiceEval is a lightweight TypeScript agent eval tool for agents, services, functions, and coding-agent fixtures.",
+    meta: "NiceEval is a lightweight, agent-native TypeScript eval tool for AI agents and coding-agent workflows.",
     navStart: "Start",
     blog: "Blog",
     docs: "Docs",
@@ -221,29 +153,10 @@ const copy = {
       ["Define", "Write evals and experiments the way you'd write unit tests."],
       ["Evaluate", "Evaluate directly, or in parallel inside a sandbox."],
     ],
-    setupEyebrow: "Eval example",
-    setupTitle: "eval multi-turn conversations",
-    evalCard: {
-      source: enSourceLines.join("\n"),
-      notes: {
-        turn1: "The image shows a blue background with a white square in the middle.",
-        turn2: "The background is blue.",
-        turn3: "The shape in the middle is white.",
-        succeeded: "succeeded() confirms turn 1 went through cleanly — no failures and no stall waiting on a human-in-the-loop prompt.",
-        noTools: "first.usedNoTools() confirms turn 1 answered straight from the image — no tool call was needed.",
-        recognize: "second.messageIncludes() is a turn-scoped assertion — it only checks turn 2's own reply, unlike the run-level scan below.",
-        followup: "This assertion runs at the run level — it scans every assistant message across all three turns, not just the last reply.",
-        gate: "A closedQA judge checks whether the assistant kept grounding every answer in turn one's image; the run only passes with a score at or above 0.7.",
-      },
-      timingLabel: "Timing trace",
-      timingRows: [
-        { label: "Turn 1 · sendFile(image)", value: "2.1s" },
-        { label: "Turn 2 · send(follow-up)", value: "1.3s" },
-        { label: "Turn 3 · send(follow-up)", value: "1.5s" },
-        { label: "judge.autoevals.closedQA", value: "0.9s" },
-      ],
-      timingTotal: "5.8s total · $0.006 est.",
-    },
+    setupEyebrow: "Eval examples",
+    setupTitle: "eval chats, tool calls, and coding agents",
+    setupCaption: "Each card is a runnable defineEval file. Click a highlighted line to peek at replies and assertion notes.",
+    timingLabel: "Timing trace",
     blogPage: {
       meta: "Why NiceEval needs evals, traces, fixtures, and clear product-level feedback loops.",
       eyebrow: "NiceEval Blog",
@@ -257,7 +170,7 @@ const copy = {
     },
   },
   zh: {
-    meta: "NiceEval 是轻量、通用、DX 体验好的 TypeScript agent eval 工具，适合评 agents、services、functions 和 coding-agent fixtures。",
+    meta: "NiceEval 是轻量、Agent-Native、DX 体验好的 TypeScript agent eval 工具，适合评 AI agents 和 coding-agent workflows。",
     navStart: "开始",
     blog: "博客",
     docs: "文档",
@@ -293,28 +206,9 @@ const copy = {
       ["评估", "直接或者在 sandbox 并行评估"],
     ],
     setupEyebrow: "Eval 示例",
-    setupTitle: "Eval 多轮对话",
-    evalCard: {
-      source: zhSourceLines.join("\n"),
-      notes: {
-        turn1: "图片是一个蓝色背景，中间有一个白色方块。",
-        turn2: "背景是蓝色。",
-        turn3: "中间的形状是白色。",
-        succeeded: "succeeded() 确认第一轮收发正常，没有失败，也没有卡在人工介入(HITL)。",
-        noTools: "first.usedNoTools() 确认第一轮是直接看图作答，没有调用任何工具。",
-        recognize: "second.messageIncludes() 是轮次级断言——只检查第二轮自己的回复，跟下面的 run 级扫描不一样。",
-        followup: "这是 run 级断言——会扫描整次运行里所有 assistant 消息，而不只是最后一轮回复。",
-        gate: "closedQA judge 检查助手是否全程都基于第一轮的图片作答；分数达到 0.7 才算通过。",
-      },
-      timingLabel: "耗时追踪",
-      timingRows: [
-        { label: "第 1 轮 · sendFile(图片)", value: "2.1s" },
-        { label: "第 2 轮 · send(追问)", value: "1.3s" },
-        { label: "第 3 轮 · send(追问)", value: "1.5s" },
-        { label: "judge.autoevals.closedQA", value: "0.9s" },
-      ],
-      timingTotal: "共 5.8s · 预估 $0.006",
-    },
+    setupTitle: "Eval 对话、工具调用与 coding agent",
+    setupCaption: "每张卡都是一个可直接运行的 defineEval 文件。点击高亮行，展开助手回复和断言说明。",
+    timingLabel: "耗时追踪",
     blogPage: {
       meta: "为什么 NiceEval 需要 eval、trace、fixture 和清晰的产品反馈回路。",
       eyebrow: "NiceEval 博客",
@@ -381,7 +275,7 @@ function App() {
           <>
             <Hero t={t} locale={locale} navigate={navigate} />
             <Strip t={t} />
-            <Setup t={t} />
+            <Setup t={t} locale={locale} />
           </>
         ) : route.name === "blog" ? (
           <BlogIndex t={t} locale={locale} navigate={navigate} />
@@ -840,21 +734,90 @@ function Step({ k, title, text }) {
   );
 }
 
-function Setup({ t }) {
+function Setup({ t, locale }) {
+  const [activeId, setActiveId] = useState(evalExamples[0].id);
+  // 自动轮播：进入视口才转，悬停在卡组上暂停；用户任何点击不停止轮播，只把倒计时清零重来。
+  const [resetKey, setResetKey] = useState(0);
+  const [hovering, setHovering] = useState(false);
+  const [inView, setInView] = useState(false);
+  const sectionRef = useRef(null);
+  const activeIndex = evalExamples.findIndex((example) => example.id === activeId);
+
+  useEffect(() => {
+    const node = sectionRef.current;
+    if (!node) return undefined;
+    const observer = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting), { threshold: 0.35 });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (hovering || !inView) return undefined;
+    const timer = window.setInterval(() => {
+      setActiveId((prev) => {
+        const index = evalExamples.findIndex((example) => example.id === prev);
+        return evalExamples[(index + 1) % evalExamples.length].id;
+      });
+    }, 6500);
+    return () => window.clearInterval(timer);
+  }, [hovering, inView, resetKey]);
+
+  const activate = (id, source) => {
+    setResetKey((key) => key + 1);
+    if (id === activeId) return;
+    track("Switch Eval Example", { id, source, locale });
+    setActiveId(id);
+  };
+
   return (
-    <section id="setup" className="setup shell">
+    <section id="setup" className="setup shell" ref={sectionRef}>
       <div className="setup-intro">
         <p className="eyebrow">{t.setupEyebrow}</p>
         <h2>{t.setupTitle}</h2>
+        <p className="setup-caption">{t.setupCaption}</p>
+        <div className="deck-switch" role="tablist" aria-label={t.setupEyebrow}>
+          {evalExamples.map((example) => (
+            <button
+              key={example.id}
+              type="button"
+              role="tab"
+              aria-selected={example.id === activeId}
+              className={example.id === activeId ? "active" : undefined}
+              onClick={() => activate(example.id, "switcher")}
+            >
+              <span className="deck-tag">{example[locale].tag}</span>
+              <span>{example[locale].label}</span>
+            </button>
+          ))}
+        </div>
       </div>
-      <EvalCard t={t} card={t.evalCard} />
+      <div
+        className="eval-deck"
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+        onClickCapture={() => setResetKey((key) => key + 1)}
+      >
+        {evalExamples.map((example, index) => (
+          <EvalCard
+            key={example.id}
+            t={t}
+            example={example}
+            locale={locale}
+            active={example.id === activeId}
+            offset={(index - activeIndex + evalExamples.length) % evalExamples.length}
+            onActivate={() => activate(example.id, "card")}
+          />
+        ))}
+      </div>
     </section>
   );
 }
 
-function EvalCard({ t, card }) {
+function EvalCard({ t, example, locale, active, offset, onActivate }) {
   const [openLines, setOpenLines] = useState(() => new Set());
   const [timingOpen, setTimingOpen] = useState(false);
+  const card = example[locale];
+  const meta = example.meta;
 
   const toggleLine = (lineNo, noteKey) => {
     setOpenLines((prev) => {
@@ -862,24 +825,33 @@ function EvalCard({ t, card }) {
       const opening = !next.has(lineNo);
       if (opening) next.add(lineNo);
       else next.delete(lineNo);
-      track("Toggle Eval Code Note", { noteKey, open: opening });
+      track("Toggle Eval Code Note", { example: example.id, noteKey, open: opening });
       return next;
     });
   };
 
   return (
-    <div className="setup-card">
+    // 后排卡片只当"切换到这个示例"的按钮用：整卡可点，内容对读屏和 Tab 键隐藏(键盘走左侧 tablist)。
+    <div
+      className={active ? "setup-card deck-card active" : `setup-card deck-card deck-pos-${offset}`}
+      aria-hidden={active ? undefined : true}
+      onClick={active ? undefined : onActivate}
+    >
       <div className="setup-card-head">
+        <div className="setup-card-title">
+          <span className="deck-tag">{card.tag}</span>
+          <span className="deck-label">{card.label}</span>
+        </div>
         <span className="pill">{t.runStatusPassed}</span>
       </div>
       <div className="setup-panel">
-        <Highlight code={card.source} language="tsx" theme={codeTheme}>
+        <Highlight code={card.lines.join("\n")} language="tsx" theme={codeTheme}>
           {({ className, style, tokens, getLineProps, getTokenProps }) => (
             <pre className={`eval-code ${className}`} style={style}>
               {tokens.map((line, i) => {
                 const lineNo = i + 1;
-                const noteKey = evalFileMeta.highlights[lineNo];
-                const isReply = noteKey ? evalFileMeta.replyLines.has(noteKey) : false;
+                const noteKey = active ? meta.highlights[lineNo] : undefined;
+                const isReply = noteKey ? meta.replyKeys.includes(noteKey) : false;
                 const open = openLines.has(lineNo);
                 const lineClassName = noteKey ? `code-line interactive ${isReply ? "reply" : "assertion"}` : "code-line";
                 return (
@@ -911,7 +883,7 @@ function EvalCard({ t, card }) {
                       </span>
                       {noteKey ? (
                         <span className="code-line-actions">
-                          {lineNo === evalFileMeta.gateLine ? <span className="gate-badge">{evalFileMeta.gateBadge}</span> : null}
+                          {lineNo === meta.gateLine ? <span className="gate-badge">{meta.gateBadge}</span> : null}
                           <ChevronRight size={12} className={open ? "chev open" : "chev"} aria-hidden="true" />
                         </span>
                       ) : null}
@@ -933,15 +905,19 @@ function EvalCard({ t, card }) {
         type="button"
         className="eval-more"
         aria-expanded={timingOpen}
-        onClick={() =>
-          setTimingOpen((v) => {
-            track("Toggle Timing Trace", { open: !v });
-            return !v;
-          })
+        tabIndex={active ? undefined : -1}
+        onClick={
+          active
+            ? () =>
+                setTimingOpen((v) => {
+                  track("Toggle Timing Trace", { example: example.id, open: !v });
+                  return !v;
+                })
+            : undefined
         }
       >
         <ChevronRight size={13} className={timingOpen ? "chev open" : "chev"} />
-        {card.timingLabel}
+        {t.timingLabel}
       </button>
       {timingOpen ? (
         <div className="eval-more-body">

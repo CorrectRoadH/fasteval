@@ -26,6 +26,8 @@ html {
 body {
   margin: 0;
   min-width: 320px;
+  /* eval-deck 的倾斜卡片旋转后会超出版心，裁掉溢出避免出现横向滚动条。 */
+  overflow-x: clip;
   background:
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
@@ -544,18 +546,141 @@ h1 {
   letter-spacing: 0;
 }
 
+.setup-caption {
+  max-width: 400px;
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+
+.deck-switch {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.deck-switch button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: left;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.deck-switch button:hover {
+  color: var(--text);
+}
+
+.deck-switch button.active {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+}
+
+.deck-tag {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(185, 255, 61, 0.12);
+  color: var(--green);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+}
+
+.eval-deck {
+  position: relative;
+  margin-top: 14px;
+}
+
 .setup-card {
   display: grid;
   gap: 18px;
   padding: 22px;
   border: 1px solid var(--line-strong);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.035);
+  /* 卡片会互相叠放，背景必须不透明，否则后排代码会透过前排卡片。 */
+  background: linear-gradient(rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.035)), var(--panel);
+}
+
+.deck-card {
+  transition: transform 320ms ease, box-shadow 320ms ease;
+}
+
+.deck-card.active {
+  position: relative;
+  z-index: 3;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* 后排卡片盖满整个 deck(高度跟随前排卡)，倾斜露出边角，整卡可点。 */
+.deck-card:not(.active) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.deck-card:not(.active)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: rgba(3, 3, 3, 0.55);
+  transition: background 320ms ease;
+}
+
+.deck-card:not(.active):hover::after {
+  background: rgba(3, 3, 3, 0.38);
+}
+
+.deck-card.deck-pos-1 {
+  z-index: 2;
+  transform: rotate(3deg) translate(20px, -18px);
+}
+
+.deck-card.deck-pos-2 {
+  z-index: 1;
+  transform: rotate(-2.4deg) translate(-18px, -10px);
+}
+
+.deck-card.deck-pos-1:hover {
+  transform: rotate(3.4deg) translate(22px, -26px);
+}
+
+.deck-card.deck-pos-2:hover {
+  transform: rotate(-2.8deg) translate(-20px, -18px);
 }
 
 .setup-card-head {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setup-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.deck-label {
+  font-size: 14px;
+  font-weight: 620;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pill {
@@ -1050,6 +1175,15 @@ h1 {
     position: static;
   }
 
+  .deck-switch {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .eval-deck {
+    margin-top: 26px;
+  }
+
   .visual {
     min-height: 510px;
   }
@@ -1135,6 +1269,17 @@ h1 {
 
   .setup-card {
     padding: 18px;
+  }
+
+  /* 窄屏收紧倾斜幅度，避免后排卡片顶出视口造成横向滚动。 */
+  .deck-card.deck-pos-1,
+  .deck-card.deck-pos-1:hover {
+    transform: rotate(2deg) translate(8px, -10px);
+  }
+
+  .deck-card.deck-pos-2,
+  .deck-card.deck-pos-2:hover {
+    transform: rotate(-1.6deg) translate(-7px, -6px);
   }
 
   .eval-code {
