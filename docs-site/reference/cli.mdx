@@ -74,18 +74,7 @@ npx niceeval exp compare-models weather
   agent there so the run configuration is reviewable and reproducible.
 </ParamField>
 
-<ParamField query="--sandbox" type="string">
-  Temporarily choose the sandbox backend for the selected experiment. Accepted values: `docker`, `vercel`, `auto`.
-
-  - `docker` — spin up a local Docker container (no cloud credentials needed).
-  - `vercel` — use Vercel Sandbox (requires `VERCEL_API_TOKEN` and `VERCEL_TEAM_ID`).
-  - `auto` — detect automatically: use `vercel` when Vercel credentials are present, otherwise fall back to `docker`.
-
-  ```bash
-  npx niceeval exp local --sandbox docker
-  npx niceeval exp local --sandbox auto
-  ```
-</ParamField>
+> There is no CLI flag for choosing a sandbox backend. Sandbox backend selection is a written-in-code concern only — set `sandbox` in the experiment (`defineExperiment`) or as a project-wide fallback in `niceeval.config.ts` (`defineConfig`) to `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox`. Attempting to pass a sandbox flag on the CLI prints an error and exits 1.
 
 #### Run control
 
@@ -297,7 +286,7 @@ niceeval's exit code lets CI systems gate on eval results without parsing output
   <Tab title="Local development">
     ```bash
     # Watch a specific eval while you develop
-    npx niceeval exp local fixtures/button --sandbox docker --watch
+    npx niceeval exp local fixtures/button --watch
 
     # Dry-run to check which evals will run
     npx niceeval exp local --dry
@@ -318,7 +307,7 @@ niceeval's exit code lets CI systems gate on eval results without parsing output
   <Tab title="Pass rate measurement">
     ```bash
     # Run each eval 10 times; stop early once one attempt passes
-    npx niceeval exp local fixtures/button --runs 10 --sandbox docker
+    npx niceeval exp local fixtures/button --runs 10
 
     # Run all 10 attempts regardless (full distribution)
     npx niceeval exp local fixtures/button --runs 10 --no-early-exit

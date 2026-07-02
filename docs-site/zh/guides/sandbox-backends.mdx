@@ -23,13 +23,20 @@ Adapter 常用操作包括：
 
 ## 选择后端
 
-```bash
-npx niceeval exp local fixtures/button --sandbox docker
-npx niceeval exp local fixtures/button --sandbox vercel
-npx niceeval exp local fixtures/button --sandbox auto
+选择后端只能写在代码里——没有对应的 CLI flag，niceeval 也不会自动探测后端。在 experiment 里设置 `sandbox` 字段（或者在 `niceeval.config.ts` 里设置作为项目级兜底），三选一：
+
+```ts
+// experiments/local.ts
+import { defineExperiment } from "niceeval";
+import { dockerSandbox } from "niceeval/sandbox";
+
+export default defineExperiment({
+  agent: myCodingAgent,
+  sandbox: dockerSandbox(), // 或 vercelSandbox() / e2bSandbox()
+});
 ```
 
-`auto` 通常在检测到云端凭据时使用云端后端，否则回退到 Docker。
+如果 experiment 和 `niceeval.config.ts` 都没有设置 `sandbox`，niceeval 在创建 sandbox 时会直接报错，而不会猜一个后端。
 
 ## Docker
 

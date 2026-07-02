@@ -33,5 +33,5 @@ export default defineConfig({
 </ParamField>
 
 <ParamField body="sandbox" type="SandboxSpec">
-  默认 sandbox 后端，用 `niceeval/sandbox` 里的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` 构造；省略该字段则从环境变量自动探测后端。文件上传由 eval 自己显式调用 `t.sandbox.uploadDirectory(...)` 等 API。
+  默认 sandbox 后端，用 `niceeval/sandbox` 里的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` 构造。对 sandbox agent 来说是必填项（可以直接写在 experiment 上，也可以只写在这里作为项目级兜底）——niceeval 不再自动探测后端，也不接受 CLI 覆盖。文件上传由 eval 自己显式调用 `t.sandbox.uploadDirectory(...)` 等 API。
 </ParamField>

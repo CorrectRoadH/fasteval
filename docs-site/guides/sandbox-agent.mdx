@@ -24,19 +24,31 @@ niceeval ships three sandbox adapters out of the box. Import one into an experim
 
 ## Running a sandbox agent
 
-Select the agent in an experiment file, then run that experiment. The optional `--sandbox` flag only overrides where niceeval spins up the isolated environment (see [Sandbox Backends](/guides/sandbox-backends) for the full list of options).
+Select the agent in an experiment file, and set `sandbox` on that same experiment (or as a project-wide fallback in `niceeval.config.ts`) to pick where niceeval spins up the isolated environment (see [Sandbox Backends](/guides/sandbox-backends) for the full list of options).
+
+```ts
+// experiments/local.ts
+import { defineExperiment } from "niceeval";
+import { dockerSandbox } from "niceeval/sandbox";
+import claudeCode from "niceeval/agents/claude-code";
+
+export default defineExperiment({
+  agent: claudeCode,
+  sandbox: dockerSandbox(),
+});
+```
 
 ```shell
 # Evaluate the button fixture with Claude Code in a local Docker container
 export ANTHROPIC_API_KEY=sk-ant-...
-npx niceeval exp local fixtures/button --sandbox docker
+npx niceeval exp local fixtures/button
 
 # Run 10 times and stop as soon as one pass is recorded
 npx niceeval exp local fixtures/button --runs 10 --early-exit
 ```
 
 <Note>
-  The `--sandbox docker` flag is optional if Docker is your default backend. Keep the agent choice in `experiments/local.ts` or another signed-in experiment file.
+  There is no CLI flag for choosing a sandbox backend — sandbox backend selection lives entirely in code. If neither the experiment nor `niceeval.config.ts` sets `sandbox`, niceeval throws as soon as it tries to create one.
 </Note>
 
 ### Environment variables by agent
@@ -218,10 +230,12 @@ Built-in agents (`claude-code`, `codex`, `bub`) can be imported into experiment 
 ```ts
 // experiments/local.ts
 import { defineExperiment } from "niceeval";
+import { dockerSandbox } from "niceeval/sandbox";
 import myCustomAgent from "./agents/my-custom-agent.js";
 
 export default defineExperiment({
   agent: myCustomAgent,
+  sandbox: dockerSandbox(),
   runs: 1,
 });
 ```
@@ -229,7 +243,7 @@ export default defineExperiment({
 Then run that experiment:
 
 ```shell
-npx niceeval exp local fixtures/my-task --sandbox docker
+npx niceeval exp local fixtures/my-task
 ```
 
 <Warning>

@@ -63,13 +63,15 @@ Open `niceeval.config.ts` and review the defaults:
 // niceeval.config.ts
 import { defineConfig } from "niceeval";
 import { Console, JUnit } from "niceeval/reporters";
+import { dockerSandbox } from "niceeval/sandbox";
 
 export default defineConfig({
   judge: { model: "anthropic/claude-haiku-4-5" },
   reporters: [Console(), JUnit(".niceeval/junit.xml")],
   maxConcurrency: 8,
   timeoutMs: 300_000,
-  // sandbox omitted: auto-detects a cloud token if available, otherwise Docker
+  // project-wide fallback sandbox backend for coding-agent evals
+  sandbox: dockerSandbox(),
 });
 ```
 
@@ -228,11 +230,11 @@ export default defineEval({
 
 The eval controls the full flow: upload the starting files, send the work order, inspect changed files, and run build/test commands.
 
-Run the coding-agent eval with Docker as the sandbox:
+Run the coding-agent eval. The `button` eval's experiment (or `niceeval.config.ts`) must already set `sandbox: dockerSandbox()` as shown above — niceeval no longer picks a default backend:
 
 ```shell
 export ANTHROPIC_API_KEY=sk-ant-...
-npx niceeval exp local button --sandbox docker
+npx niceeval exp local button
 ```
 
 To measure pass rate over multiple attempts with early stopping on first success:

@@ -444,9 +444,11 @@ The following coding agent adapters are exported by niceeval and can be referenc
 </CardGroup>
 
 ```shell
-npx niceeval exp claude-code-local evals/fixtures/button --sandbox docker
-npx niceeval exp codex-local evals/fixtures/button --sandbox docker
+npx niceeval exp claude-code-local evals/fixtures/button
+npx niceeval exp codex-local evals/fixtures/button
 ```
+
+Each of these experiments must set `sandbox: dockerSandbox()` (or `vercelSandbox()` / `e2bSandbox()`) itself — niceeval no longer picks a default backend, and there is no CLI flag for choosing one.
 
 ---
 

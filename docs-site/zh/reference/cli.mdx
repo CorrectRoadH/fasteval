@@ -60,13 +60,7 @@ npx niceeval exp compare-models weather
   experiment 运行不支持该 flag。要换 agent，请在 `experiments/` 下新增或复制一个配置文件。
 </ParamField>
 
-<ParamField query="--sandbox" type="string">
-  临时选择当前 experiment 的 sandbox 后端：`docker`、`vercel` 或 `auto`。
-
-  ```bash
-  npx niceeval exp local --sandbox docker
-  ```
-</ParamField>
+> 没有用于选择 sandbox 后端的 CLI flag。sandbox 后端选择只能写在代码里——在 experiment（`defineExperiment`）里设置 `sandbox`，或者在 `niceeval.config.ts`（`defineConfig`）里设置作为项目级兜底，值来自 `niceeval/sandbox` 的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`。在 CLI 上尝试传入该 flag 会直接报错并以非零状态退出。
 
 <ParamField query="--model" type="string">
   experiment 运行不支持该 flag。要换模型，请新增或复制一个 experiment 文件并修改 `model`。

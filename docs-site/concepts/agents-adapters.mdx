@@ -46,7 +46,7 @@ interface AgentContext {
   readonly signal: AbortSignal;
   readonly model?: ModelTier;            // provided by the experiment; omit → agent's native default
   readonly flags: Readonly<Record<string, unknown>>; // experiment feature flags, forwarded to agent
-  readonly sandbox?: Sandbox;            // only present for sandbox agents (set by --sandbox)
+  readonly sandbox?: Sandbox;            // only present for sandbox agents (backend chosen by experiment's `sandbox` field)
   readonly session: { id?: string; readonly isNew: boolean }; // for multi-turn resume / newSession
   log(msg: string): void;
 }
@@ -202,12 +202,13 @@ Use them from experiment files, for example `agent: claudeCodeAgent()` or `agent
 
 The experiment's `agent` and the sandbox backend are independent:
 
-```shell
+```ts
 experiment.agent     selects which system under test to connect to
---sandbox <backend>  selects where sandbox agents run (docker / vercel / third-party)
+experiment.sandbox   selects where sandbox agents run — dockerSandbox() / vercelSandbox() / e2bSandbox()
+                      (config.sandbox is the project-wide fallback: exp.sandbox ?? config.sandbox)
 ```
 
-Any sandbox agent works with any sandbox backend. `claude-code` can run in Docker or Vercel; the same Docker sandbox can host `claude-code` or `bub`. The runner prepares a `Sandbox` handle and passes it through `ctx.sandbox` — agent and sandbox interact only through that interface. Remote agents (`defineAgent`) ignore `--sandbox` entirely.
+Any sandbox agent works with any sandbox backend. `claude-code` can run in Docker or Vercel; the same Docker sandbox can host `claude-code` or `bub`. The runner prepares a `Sandbox` handle and passes it through `ctx.sandbox` — agent and sandbox interact only through that interface. Remote agents (`defineAgent`) ignore `sandbox` entirely. There is no CLI flag for sandbox selection and no auto-detection — a sandbox-capable agent's experiment (or the project config, as a fallback) must set `sandbox` explicitly, or niceeval throws when it tries to create one.
 
 ## Configuration: what belongs where
 

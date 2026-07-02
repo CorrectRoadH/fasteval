@@ -73,6 +73,7 @@ Open the generated `niceeval.config.ts` and review the available options:
 // niceeval.config.ts
 import { defineConfig } from "niceeval";
 import { Console, JUnit } from "niceeval/reporters";
+import { dockerSandbox } from "niceeval/sandbox";
 
 export default defineConfig({
   // LLM used for t.judge.* assertions
@@ -87,7 +88,9 @@ export default defineConfig({
   // per-eval timeout in milliseconds (5 minutes)
   timeoutMs: 300_000,
 
-  // sandbox omitted here: uses a cloud sandbox token if present, otherwise Docker
+  // project-wide fallback sandbox backend for coding-agent evals;
+  // an experiment's own `sandbox` field takes precedence over this
+  sandbox: dockerSandbox(),
 });
 ```
 
@@ -97,7 +100,7 @@ export default defineConfig({
 | `reporters` | `Reporter[]` | Reporters that emit results after every run |
 | `maxConcurrency` | `number` | Maximum number of evals running at the same time |
 | `timeoutMs` | `number` | Per-eval timeout in milliseconds |
-| `sandbox` | `SandboxSpec` | Sandbox backend for coding-agent evals, built with `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox`; omit to auto-detect |
+| `sandbox` | `SandboxSpec` | Sandbox backend for coding-agent evals, built with `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox`. Required for sandbox agents — either here as a project-wide fallback or on the experiment itself (`exp.sandbox ?? config.sandbox`); niceeval no longer auto-detects a backend |
 
 Select agents in experiment files:
 

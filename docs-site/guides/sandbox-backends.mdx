@@ -4,7 +4,7 @@ sidebarTitle: "Sandbox Backends"
 description: "niceeval runs coding agents in Docker or Vercel sandboxes. Learn how to select a backend, configure root access, and improve performance with warm pools."
 ---
 
-A sandbox backend is the infrastructure that creates and manages the isolated environment where a coding agent runs. niceeval wraps every backend behind a single `Sandbox` interface, so your adapter code works identically regardless of whether the environment is a local Docker container, a Vercel micro-VM, or a third-party cloud service. You choose a backend at the CLI or in config; the adapter never needs to know which one is active.
+A sandbox backend is the infrastructure that creates and manages the isolated environment where a coding agent runs. niceeval wraps every backend behind a single `Sandbox` interface, so your adapter code works identically regardless of whether the environment is a local Docker container, a Vercel micro-VM, or a third-party cloud service. You choose a backend by setting `sandbox` in the experiment (or as a project-wide fallback in `niceeval.config.ts`); the adapter never needs to know which one is active.
 
 ## The `Sandbox` interface
 
@@ -66,8 +66,8 @@ The `root: true` semantics are consistent across every backend:
 ## Available backends
 
 <Tabs>
-  <Tab title="Docker (default)">
-    Docker is the default backend and requires no cloud credentials — only a local Docker installation. It is the right choice for local development and most CI pipelines.
+  <Tab title="Docker">
+    Docker requires no cloud credentials — only a local Docker installation. It is the right choice for local development and most CI pipelines.
 
     **How it works:**
     - Starts a long-lived `node:24-slim` container that tails the sandbox log file
@@ -77,18 +77,19 @@ The `root: true` semantics are consistent across every backend:
     - Files are uploaded using tar + `putArchive`, with a `chown` pass to fix ownership
     - Docker's multiplexed exec stream (8-byte frame header) is parsed correctly
 
-    ```shell
-    npx niceeval exp local fixtures/button --sandbox docker
-    ```
-
     ```ts
-    // niceeval.config.ts
-    import { defineConfig } from "niceeval";
+    // experiments/local.ts (or niceeval.config.ts as a project-wide fallback)
+    import { defineExperiment } from "niceeval";
     import { dockerSandbox } from "niceeval/sandbox";
 
-    export default defineConfig({
+    export default defineExperiment({
+      agent: myCodingAgent,
       sandbox: dockerSandbox(),
     });
+    ```
+
+    ```shell
+    npx niceeval exp local fixtures/button
     ```
   </Tab>
   <Tab title="Vercel">
@@ -96,43 +97,41 @@ The `root: true` semantics are consistent across every backend:
 
     **Requirements:** set `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID`, and optionally `VERCEL_PROJECT_ID` in your environment.
 
-    ```shell
-    VERCEL_API_TOKEN=... VERCEL_TEAM_ID=... npx niceeval exp local fixtures/button --sandbox vercel
-    ```
-
     ```ts
-    // niceeval.config.ts
-    import { defineConfig } from "niceeval";
+    // experiments/local.ts (or niceeval.config.ts as a project-wide fallback)
+    import { defineExperiment } from "niceeval";
     import { vercelSandbox } from "niceeval/sandbox";
 
-    export default defineConfig({
+    export default defineExperiment({
+      agent: myCodingAgent,
       sandbox: vercelSandbox(),
     });
     ```
 
+    ```shell
+    VERCEL_API_TOKEN=... VERCEL_TEAM_ID=... npx niceeval exp local fixtures/button
+    ```
+
     The Vercel backend handles cloud session lifetime by snapshotting and rotating long-lived sessions when needed.
   </Tab>
-  <Tab title="Auto (default)">
-    Omitting the `sandbox` field entirely inspects the environment and picks the best available backend. If Vercel Sandbox credentials are present, it uses Vercel; otherwise it falls back to Docker. The same auto-detection also runs when you pass `--sandbox auto` at the CLI.
+  <Tab title="E2B">
+    The E2B backend runs the sandbox on E2B's cloud infrastructure. It is a good fit for teams already using E2B for other agent workloads.
+
+    **Requirements:** set `E2B_API_KEY` in your environment.
 
     ```ts
-    // niceeval.config.ts
-    import { defineConfig } from "niceeval";
+    // experiments/local.ts (or niceeval.config.ts as a project-wide fallback)
+    import { defineExperiment } from "niceeval";
+    import { e2bSandbox } from "niceeval/sandbox";
 
-    export default defineConfig({
-      // sandbox omitted: the recommended default for most teams
+    export default defineExperiment({
+      agent: myCodingAgent,
+      sandbox: e2bSandbox(),
     });
     ```
 
-    This is the recommended setting if you want local runs to use Docker automatically and CI runs to use Vercel once you add a token to your secrets.
-  </Tab>
-  <Tab title="Third-party">
-    niceeval's `createSandbox` function has a plugin-style extension point for third-party sandboxing services. Any backend that implements the `Sandbox` interface can be registered by package name. Pass `--sandbox <name>` to activate it.
-
-    Currently documented third-party integrations include E2B, Modal, and Daytona. Because the `Sandbox` interface is intentionally small (run / read / write / stop), integrating a new provider requires minimal code.
-
     ```shell
-    npx niceeval exp local fixtures/button --sandbox e2b
+    E2B_API_KEY=... npx niceeval exp local fixtures/button
     ```
   </Tab>
 </Tabs>
@@ -141,30 +140,35 @@ The `root: true` semantics are consistent across every backend:
 
 ## Selecting a backend
 
-You can select the backend on the CLI, in config, or by relying on auto-detection:
+Sandbox selection is a written-in-code concern only — there is no CLI flag and no auto-detection. You must set `sandbox` explicitly, either on the experiment or as a project-wide fallback in config, using one of the three factories above:
 
 <Steps>
-  <Step title="CLI flag (highest priority)">
-    ```shell
-    npx niceeval exp local fixtures/button --sandbox docker
-    npx niceeval exp local fixtures/button --sandbox vercel
+  <Step title="Experiment file (recommended, highest priority)">
+    ```ts
+    // experiments/local.ts
+    import { defineExperiment } from "niceeval";
+    import { dockerSandbox } from "niceeval/sandbox";
+
+    export default defineExperiment({
+      agent: myCodingAgent,
+      sandbox: dockerSandbox(),   // or vercelSandbox() / e2bSandbox()
+    });
     ```
   </Step>
-  <Step title="Config file">
+  <Step title="Config file (project-wide fallback)">
     ```ts
     // niceeval.config.ts
     import { defineConfig } from "niceeval";
     import { dockerSandbox } from "niceeval/sandbox";
 
     export default defineConfig({
-      sandbox: dockerSandbox(),   // or vercelSandbox() / e2bSandbox() / a third-party factory
+      sandbox: dockerSandbox(),   // used when an experiment doesn't set its own `sandbox`
     });
     ```
   </Step>
-  <Step title="Auto-detection fallback">
-    If neither is set — no `--sandbox` flag, and no `sandbox` field in config — niceeval runs `detectBackend()` which returns `"vercel"` when a cloud token is present and `"docker"` otherwise.
-  </Step>
 </Steps>
+
+If a sandbox-capable agent's experiment has no `sandbox` field and `niceeval.config.ts` has no `sandbox` field either, niceeval throws as soon as it tries to create a sandbox — it no longer guesses a backend from environment variables.
 
 ---
 
@@ -191,10 +195,10 @@ The Vercel backend requires:
 ```shell
 export VERCEL_API_TOKEN=vercel_...
 export VERCEL_TEAM_ID=team_...
-npx niceeval exp local fixtures/button --sandbox vercel
+npx niceeval exp local fixtures/button
 ```
 
-The interface exposed to adapters is identical to Docker. You can switch an entire eval suite from Docker to Vercel by changing one line in `niceeval.config.ts` — no adapter code changes required.
+The interface exposed to adapters is identical to Docker. You can switch an entire eval suite from Docker to Vercel by changing one line — `sandbox: dockerSandbox()` to `sandbox: vercelSandbox()` — no adapter code changes required.
 
 ---
 

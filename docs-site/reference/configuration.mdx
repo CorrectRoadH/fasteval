@@ -33,5 +33,5 @@ export default defineConfig({
 </ParamField>
 
 <ParamField body="sandbox" type="SandboxSpec">
-  Default sandbox backend, built with `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox`; omit the field to auto-detect from env vars. Files are not uploaded automatically; sandbox evals call `t.sandbox.uploadDirectory(...)`, `uploadFiles(...)`, or `writeFiles(...)` in `test(t)`.
+  Default sandbox backend, built with `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox`. Required for sandbox agents (directly on the experiment, or via this project-wide fallback) — niceeval no longer auto-detects a backend or accepts a CLI override. Files are not uploaded automatically; sandbox evals call `t.sandbox.uploadDirectory(...)`, `uploadFiles(...)`, or `writeFiles(...)` in `test(t)`.
 </ParamField>

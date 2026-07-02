@@ -13,7 +13,7 @@ niceeval is organized around three concerns that stay permanently separated: **w
    ----------------------           --------------             ------------------------------------
    weather.eval.ts  --discover-->   Runner  --send-->  Agent   ┬─ in-process adapter  (your agent)
    sql.eval.ts                        │                        ├─ remote adapter      (your service)
-   button.eval.ts  --sandbox-->       │                        └─ sandbox adapter ─── Sandbox
+   button.eval.ts  --upload-->        │                        └─ sandbox adapter ─── Sandbox
      workspaces/button/               │                           (claude-code          (docker /
                                       ▼                            codex / bub …)        third-party)
                                   Scorers ── Reporters ── .niceeval/<run>/
@@ -81,9 +81,9 @@ A **sandbox** is where a sandbox-type agent runs — the isolated execution envi
   </Tab>
 </Tabs>
 
-Remote agents (those using `defineAgent`) ignore `--sandbox` entirely — they have no need for an isolated workspace. Only sandbox agents (those using `defineSandboxAgent`) require a sandbox backend.
+Remote agents (those using `defineAgent`) ignore `sandbox` entirely — they have no need for an isolated workspace. Only sandbox agents (those using `defineSandboxAgent`) require a sandbox backend.
 
-The runner selects a sandbox with `--sandbox <backend>` and passes a prepared `Sandbox` handle through `ctx.sandbox`. The agent and sandbox are **orthogonal**: `claude-code` can run in Docker or Vercel; the same Docker sandbox can run `claude-code` or `bub`. Neither side needs to know anything about the other.
+The experiment's (or config's) `sandbox` field selects where sandbox agents run — set it to `dockerSandbox()`, `vercelSandbox()`, or `e2bSandbox()` from `niceeval/sandbox`, and the runner passes a prepared `Sandbox` handle through `ctx.sandbox`. There is no CLI flag and no auto-detection: if neither the experiment nor `niceeval.config.ts` sets `sandbox`, niceeval throws as soon as it tries to create one. The agent and sandbox are otherwise **orthogonal**: `claude-code` can run in Docker or Vercel; the same Docker sandbox can run `claude-code` or `bub`. Neither side needs to know anything about the other.
 
 ## Key terminology
 
