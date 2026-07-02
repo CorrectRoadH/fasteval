@@ -16,6 +16,7 @@ import {
   Wrench,
 } from "lucide-react";
 import "./styles.css";
+import { initAnalytics, track } from "./analytics";
 
 const githubUrl = "https://github.com/CorrectRoadH/niceeval";
 
@@ -272,6 +273,10 @@ function App() {
   const t = copy[locale];
 
   useEffect(() => {
+    initAnalytics();
+  }, []);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem("niceeval-locale", locale);
     } catch {
@@ -303,10 +308,18 @@ function Header({ locale, setLocale, t }) {
         <span>NiceEval</span>
       </a>
       <nav className="nav" aria-label="Primary">
-        <a href="#setup">{t.navStart}</a>
-        <a href={docsUrl[locale]}>{t.docs}</a>
-        <a href={githubUrl}>{t.github}</a>
-        <button type="button" className="lang-toggle" aria-label={t.languageLabel} onClick={() => setLocale(nextLocale)}>
+        <a href="#setup" onClick={() => track("Click Nav Start")}>{t.navStart}</a>
+        <a href={docsUrl[locale]} onClick={() => track("Click Docs Link", { location: "header", locale })}>{t.docs}</a>
+        <a href={githubUrl} onClick={() => track("Click GitHub Link", { location: "header" })}>{t.github}</a>
+        <button
+          type="button"
+          className="lang-toggle"
+          aria-label={t.languageLabel}
+          onClick={() => {
+            track("Switch Language", { from: locale, to: nextLocale });
+            setLocale(nextLocale);
+          }}
+        >
           {nextLocale === "zh" ? "中文" : "EN"}
         </button>
       </nav>
@@ -324,6 +337,7 @@ function Hero({ t, locale }) {
     } catch {
       // Some browsers block clipboard access outside secure contexts.
     }
+    track("Copy Init Command", { locale });
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
   };
@@ -343,14 +357,23 @@ function Hero({ t, locale }) {
               key={key}
               type="button"
               className={key === mode ? "active" : ""}
-              onClick={() => setMode(key)}
+              onClick={() => {
+                track("Switch Audience Mode", { mode: key, locale });
+                setMode(key);
+              }}
             >
               {item.label}
             </button>
           ))}
         </div>
         {mode === "humans" ? (
-          <a className="button primary docs-cta" href={docsUrl[locale]} target="_blank" rel="noreferrer">
+          <a
+            className="button primary docs-cta"
+            href={docsUrl[locale]}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => track("Click Docs Link", { location: "hero", locale })}
+          >
             <BookOpen size={16} />
             {active.cta}
           </a>
@@ -365,11 +388,11 @@ function Hero({ t, locale }) {
         )}
         <p className="lede">{active.caption}</p>
         <div className="actions">
-          <a className="button primary" href="#setup">
+          <a className="button primary" href="#setup" onClick={() => track("Click Primary CTA", { mode, locale })}>
             <Play size={15} />
             {t.primaryAction}
           </a>
-          <a className="button ghost" href={githubUrl}>
+          <a className="button ghost" href={githubUrl} onClick={() => track("Click GitHub Link", { location: "hero" })}>
             <GitFork size={15} />
             {t.github}
           </a>
@@ -474,11 +497,13 @@ function EvalCard({ t, card }) {
   const [openLines, setOpenLines] = useState(() => new Set());
   const [timingOpen, setTimingOpen] = useState(false);
 
-  const toggleLine = (lineNo) => {
+  const toggleLine = (lineNo, noteKey) => {
     setOpenLines((prev) => {
       const next = new Set(prev);
-      if (next.has(lineNo)) next.delete(lineNo);
-      else next.add(lineNo);
+      const opening = !next.has(lineNo);
+      if (opening) next.add(lineNo);
+      else next.delete(lineNo);
+      track("Toggle Eval Code Note", { noteKey, open: opening });
       return next;
     });
   };
@@ -505,13 +530,13 @@ function EvalCard({ t, card }) {
                       role={noteKey ? "button" : undefined}
                       tabIndex={noteKey ? 0 : undefined}
                       aria-expanded={noteKey ? open : undefined}
-                      onClick={noteKey ? () => toggleLine(lineNo) : undefined}
+                      onClick={noteKey ? () => toggleLine(lineNo, noteKey) : undefined}
                       onKeyDown={
                         noteKey
                           ? (event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault();
-                                toggleLine(lineNo);
+                                toggleLine(lineNo, noteKey);
                               }
                             }
                           : undefined
@@ -545,7 +570,17 @@ function EvalCard({ t, card }) {
           )}
         </Highlight>
       </div>
-      <button type="button" className="eval-more" aria-expanded={timingOpen} onClick={() => setTimingOpen((v) => !v)}>
+      <button
+        type="button"
+        className="eval-more"
+        aria-expanded={timingOpen}
+        onClick={() =>
+          setTimingOpen((v) => {
+            track("Toggle Timing Trace", { open: !v });
+            return !v;
+          })
+        }
+      >
         <ChevronRight size={13} className={timingOpen ? "chev open" : "chev"} />
         {card.timingLabel}
       </button>
