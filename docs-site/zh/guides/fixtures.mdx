@@ -39,12 +39,10 @@ experiments/
 ```ts
 import { defineEval } from "niceeval";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 export default defineEval({
   description: "给 Express 路由添加请求体验证",
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t.send("在 src/routes/users.ts 里实现 POST /users 路由。").then((turn) => turn.expectOk());
 
@@ -119,7 +117,7 @@ t.check(result.stdout.trim(), includes(/ok/));
 也可以运行项目自己的 test/lint/build 脚本：
 
 ```ts
-const result = await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" });
+const result = await t.sandbox.runCommand("npm", ["test"]);
 t.check(result.exitCode, includes(0));
 ```
 

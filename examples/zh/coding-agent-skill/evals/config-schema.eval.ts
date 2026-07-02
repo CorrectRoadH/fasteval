@@ -1,8 +1,6 @@
 import { defineEval } from "niceeval";
 import { includes, excludes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 // 评测任务：用 Zod 解析并验证环境变量。
 //
 // 没有 zod skill 的 agent 通常会用 process.env.X ?? "default" 直接读取，
@@ -12,7 +10,7 @@ export default defineEval({
   description: "用 Zod 定义 EnvSchema 解析环境变量，类型安全地导出 env 对象",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t
       .send(

@@ -39,12 +39,10 @@ Upload the starting project inside the eval:
 ```ts
 import { defineEval } from "niceeval";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 export default defineEval({
   description: "Add request-body validation to an Express route",
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t.send("Implement POST /users in src/routes/users.ts.").then((turn) => turn.expectOk());
 
@@ -119,7 +117,7 @@ t.check(result.stdout.trim(), includes(/ok/));
 You can also run the project's own test, lint, or build scripts:
 
 ```ts
-const result = await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" });
+const result = await t.sandbox.runCommand("npm", ["test"]);
 t.check(result.exitCode, includes(0));
 ```
 

@@ -77,7 +77,7 @@ t.calledTool("get_weather", { count: 1 });
 t.notCalledTool("delete_user");
 t.toolOrder(["search", "summarize"]);
 t.fileChanged("src/components/Button.tsx");
-t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded());
+t.check(await t.sandbox.runCommand("npm", ["test"]), commandSucceeded());
 ```
 
 <Warning>
@@ -103,7 +103,7 @@ Sandbox eval 可以在 `test()` 里运行项目脚本或临时探针来验证 ag
 ```ts
 import { commandSucceeded } from "niceeval/expect";
 
-const result = await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" });
+const result = await t.sandbox.runCommand("npm", ["test"]);
 t.check(result, commandSucceeded());
 ```
 

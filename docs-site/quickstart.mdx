@@ -191,12 +191,10 @@ For coding agents like Claude Code, Codex, or bub that need to write real files,
 import { defineEval } from "niceeval";
 import { commandSucceeded, includes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/button/", import.meta.url).pathname;
-
 export default defineEval({
   description: "Create a Button component",
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/button");
 
     await t
       .send(
@@ -211,7 +209,7 @@ export default defineEval({
     t.check(src.text(), includes(/label/));
     t.check(src.text(), includes(/onClick/));
 
-    const build = await t.sandbox.runCommand("npm", ["run", "build"], { cwd: "/home/sandbox/workspace" });
+    const build = await t.sandbox.runCommand("npm", ["run", "build"]);
     t.check(build, commandSucceeded());
   },
 });

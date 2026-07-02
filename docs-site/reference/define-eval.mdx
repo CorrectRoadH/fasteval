@@ -344,7 +344,7 @@ Available for sandbox agents (those using `defineSandboxAgent`).
   Asserts a specific npm script (e.g. `"build"`, `"lint"`) exited with code 0.
 
   ```ts
-  t.check(await t.sandbox.runCommand("npm", ["run", "build"], { cwd: "/workspace" }), commandSucceeded());
+  t.check(await t.sandbox.runCommand("npm", ["run", "build"]), commandSucceeded());
   ```
 </ParamField>
 
@@ -498,19 +498,17 @@ Coding-agent evals use the same `defineEval(...)` API. Prepare the sandbox works
 import { defineEval } from "niceeval";
 import { commandSucceeded, includes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/legacy-callbacks/", import.meta.url).pathname;
-
 export default defineEval({
   description: "Rewrite callbacks to async/await",
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/legacy-callbacks");
     await t.send("Rewrite all callbacks in src/legacy.js to async/await, preserving behavior.").then((turn) => turn.expectOk());
     t.fileChanged("src/legacy.js");
 
     const src = await t.sandbox.readSourceFiles({ extensions: ["js"] });
     t.check(src.text(), includes("await"));
 
-    const result = await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" });
+    const result = await t.sandbox.runCommand("npm", ["test"]);
     t.check(result, commandSucceeded());
   },
 });

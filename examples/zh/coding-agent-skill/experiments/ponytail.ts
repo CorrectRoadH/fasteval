@@ -15,7 +15,7 @@ const ponytailAgent = {
   name: "claude-code+ponytail",
   async setup(sb, ctx) {
     const cleanup = await baseAgent.setup?.(sb, ctx);
-    await sb.writeFiles({ "CLAUDE.md": ponytailSkill }, "/home/sandbox/workspace");
+    await sb.writeFiles({ "CLAUDE.md": ponytailSkill });
     return cleanup;
   },
 } satisfies typeof baseAgent;

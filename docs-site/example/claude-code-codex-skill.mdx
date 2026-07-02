@@ -53,7 +53,7 @@ const zodAgent = {
   name: "claude-code+zod-skill",
   async setup(sb, ctx) {
     const cleanup = await baseAgent.setup?.(sb, ctx);
-    await sb.writeFiles({ "CLAUDE.md": zodSkill }, "/home/sandbox/workspace");
+    await sb.writeFiles({ "CLAUDE.md": zodSkill });
     return cleanup;
   },
 } satisfies typeof baseAgent;
@@ -80,13 +80,11 @@ A `.eval.ts` file prepares the workspace, sends the task, and verifies the resul
 import { defineEval } from "niceeval";
 import { excludes, includes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 export default defineEval({
   description: "Validate POST /users request bodies with Zod and structured errors",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t
       .send(

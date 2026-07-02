@@ -1,8 +1,6 @@
 import { defineEval } from "niceeval";
 import { includes, excludes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 // 评测任务：给 Express 路由添加请求体校验。
 //
 // 没有 zod skill 的 agent 通常会：手写 if/typeof 类型守卫、直接信任 req.body、
@@ -12,7 +10,7 @@ export default defineEval({
   description: "用 Zod 校验 POST /users 的请求体，失败时返回结构化错误",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t
       .send(

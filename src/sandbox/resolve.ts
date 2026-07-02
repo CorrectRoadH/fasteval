@@ -26,7 +26,7 @@ export interface ResolvedSandbox {
 /**
  * 决定用哪个后端:
  * - 显式指定且非 "auto" → 直接用。
- * - 否则:env 里有 VERCEL_TOKEN / VERCEL_OIDC_TOKEN → "vercel"。
+ * - 否则:env 里有 VERCEL_API_TOKEN / VERCEL_TOKEN / VERCEL_OIDC_TOKEN → "vercel"。
  * - 再否则:env 里有 E2B_API_KEY → "e2b"。
  * - 再否则 → "docker"。
  */
@@ -35,7 +35,7 @@ export function resolveBackend(opts: { backend?: SandboxBackend }): SandboxBacke
   if (backend && backend !== "auto") {
     return backend;
   }
-  if (process.env.VERCEL_TOKEN || process.env.VERCEL_OIDC_TOKEN) {
+  if (process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN || process.env.VERCEL_OIDC_TOKEN) {
     return "vercel";
   }
   if (process.env.E2B_API_KEY) {

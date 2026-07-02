@@ -15,7 +15,7 @@ const zodAgent = {
   name: "claude-code+zod-skill",
   async setup(sb, ctx) {
     const cleanup = await baseAgent.setup?.(sb, ctx);
-    await sb.writeFiles({ "CLAUDE.md": zodSkill }, "/home/sandbox/workspace");
+    await sb.writeFiles({ "CLAUDE.md": zodSkill });
     return cleanup;
   },
 } satisfies typeof baseAgent;

@@ -1,8 +1,6 @@
 import { defineEval } from "niceeval";
 import { includes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 // 改编自 ponytail 的 csv-sum 测试。
 //
 // 任务故意很简单：读 CSV、求 amount 列的和。
@@ -12,7 +10,7 @@ export default defineEval({
   description: "读取 sales.csv 并求 amount 列的和（应用标准库，不引入 pandas）",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t.sandbox.writeFiles({
       "sales.csv": ["id,product,amount", "1,Widget A,100.5", "2,Widget B,200.0", "3,Widget C,50.5"].join("\n"),

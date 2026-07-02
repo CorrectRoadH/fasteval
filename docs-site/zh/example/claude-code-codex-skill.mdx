@@ -53,7 +53,7 @@ const zodAgent = {
   name: "claude-code+zod-skill",
   async setup(sb, ctx) {
     const cleanup = await baseAgent.setup?.(sb, ctx);
-    await sb.writeFiles({ "CLAUDE.md": zodSkill }, "/home/sandbox/workspace");
+    await sb.writeFiles({ "CLAUDE.md": zodSkill });
     return cleanup;
   },
 } satisfies typeof baseAgent;
@@ -80,13 +80,11 @@ export default defineExperiment({
 import { defineEval } from "niceeval";
 import { excludes, includes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 export default defineEval({
   description: "用 Zod 校验 POST /users 的请求体，失败时返回结构化错误",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t
       .send(

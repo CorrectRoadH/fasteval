@@ -1,8 +1,6 @@
 import { defineEval } from "niceeval";
 import { includes, excludes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 // 改编自 ponytail 的 reuse-slug 质量测试。
 //
 // 工作区里已有一个 textutils.slugify() 工具函数，能正确处理 Unicode 和重音字母。
@@ -12,7 +10,7 @@ export default defineEval({
   description: "生成文章 URL slug——应复用现有 textutils.slugify 而非重写",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
 
     await t.sandbox.writeFiles({
       "textutils.py": [

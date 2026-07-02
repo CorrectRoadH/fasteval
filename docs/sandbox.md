@@ -145,13 +145,13 @@ await sandbox.runCommand("npm", ["install"]);   // 默认非 root,cwd 默认 wor
 type SandboxBackend = "docker" | "vercel" | "e2b" | "auto" | string;
 ```
 
-`auto` 按环境探测:有 `VERCEL_TOKEN` → vercel;否则有 `E2B_API_KEY` → e2b;否则 → docker。也可显式 `--sandbox docker`。解析逻辑收在 `sandbox/resolve.ts`,**核心不按后端名分支**,只调 `createSandbox(opts)` 拿回一个 `Sandbox`。
+`auto` 按环境探测:有 `VERCEL_API_TOKEN` / `VERCEL_TOKEN` / `VERCEL_OIDC_TOKEN` → vercel;否则有 `E2B_API_KEY` → e2b;否则 → docker。也可显式 `--sandbox docker`。解析逻辑收在 `sandbox/resolve.ts`,**核心不按后端名分支**,只调 `createSandbox(opts)` 拿回一个 `Sandbox`。
 
 ```typescript
 // sandbox/resolve.ts
 export function resolveBackend(opts): SandboxBackend {
   if (opts.backend && opts.backend !== "auto") return opts.backend;
-  if (process.env.VERCEL_TOKEN || process.env.VERCEL_OIDC_TOKEN) return "vercel";
+  if (process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN || process.env.VERCEL_OIDC_TOKEN) return "vercel";
   if (process.env.E2B_API_KEY) return "e2b";
   return "docker";
 }

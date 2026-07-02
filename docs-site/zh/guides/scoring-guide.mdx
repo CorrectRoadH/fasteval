@@ -14,7 +14,7 @@ description: "用 niceeval 的五种评分机制评估任意 eval：值断言、
 | 结构化 JSON 完全匹配 | `equals` |
 | 工具调用是否发生 | `t.calledTool` / `t.notCalledTool` |
 | 输出是否语义正确 | `t.judge.*` |
-| 代码是否工作 | `t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" }), commandSucceeded())` |
+| 代码是否工作 | `t.check(await t.sandbox.runCommand("npm", ["test"]), commandSucceeded())` |
 | 成本是否可控 | `t.maxTokens` / `t.maxCost` |
 
 ## 值断言
@@ -36,7 +36,7 @@ t.succeeded();
 t.calledTool("search");
 t.usedNoTools();
 t.fileChanged("src/app.ts");
-t.check(await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" }), commandSucceeded());
+t.check(await t.sandbox.runCommand("npm", ["test"]), commandSucceeded());
 ```
 
 它们检查整次运行的事实，通常来自标准事件流或 sandbox artifacts。
@@ -67,7 +67,7 @@ t.check(t.reply, includes("friendly tone").atLeast(0.7));
 ```ts
 import { commandSucceeded, includes } from "niceeval/expect";
 
-const testResult = await t.sandbox.runCommand("npm", ["test"], { cwd: "/home/sandbox/workspace" });
+const testResult = await t.sandbox.runCommand("npm", ["test"]);
 t.check(testResult, commandSucceeded());
 
 const src = await t.sandbox.readSourceFiles({ extensions: ["ts"] });

@@ -113,8 +113,8 @@ BUB_API_KEY=...                     # bub
 AI_GATEWAY_API_KEY=...              # 经网关的变体
 
 # 沙箱后端认证(auto 探测用)
-VERCEL_TOKEN=...                    # 用 vercel sandbox
-VERCEL_OIDC_TOKEN=...               # CI/CD OIDC
+VERCEL_API_TOKEN=...                # 用 vercel sandbox
+VERCEL_TEAM_ID=...                  # Vercel team
 # 都没有 → 自动用本地 docker
 
 # 评判模型(LLM-as-judge)

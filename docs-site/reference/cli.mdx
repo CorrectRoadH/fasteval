@@ -78,8 +78,8 @@ npx niceeval exp compare-models weather
   Temporarily choose the sandbox backend for the selected experiment. Accepted values: `docker`, `vercel`, `auto`.
 
   - `docker` — spin up a local Docker container (no cloud credentials needed).
-  - `vercel` — use Vercel Sandbox (requires `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN`).
-  - `auto` — detect automatically: use `vercel` when a Vercel token is present, otherwise fall back to `docker`.
+  - `vercel` — use Vercel Sandbox (requires `VERCEL_API_TOKEN` and `VERCEL_TEAM_ID`).
+  - `auto` — detect automatically: use `vercel` when Vercel credentials are present, otherwise fall back to `docker`.
 
   ```bash
   npx niceeval exp local --sandbox docker

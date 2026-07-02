@@ -51,7 +51,7 @@ const ponytailAgent = {
   name: "claude-code+ponytail",
   async setup(sb, ctx) {
     const cleanup = await baseAgent.setup?.(sb, ctx);
-    await sb.writeFiles({ "CLAUDE.md": ponytailSkill }, "/home/sandbox/workspace");
+    await sb.writeFiles({ "CLAUDE.md": ponytailSkill });
     return cleanup;
   },
 } satisfies typeof baseAgent;
@@ -78,13 +78,11 @@ export default defineExperiment({
 import { defineEval } from "niceeval";
 import { includes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 export default defineEval({
   description: "实现文件上传路径解析函数（不提示要防路径穿越）",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
     await t.sandbox.writeFiles({
       "uploads.py": [
         "import os",

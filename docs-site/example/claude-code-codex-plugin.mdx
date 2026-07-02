@@ -51,7 +51,7 @@ const ponytailAgent = {
   name: "claude-code+ponytail",
   async setup(sb, ctx) {
     const cleanup = await baseAgent.setup?.(sb, ctx);
-    await sb.writeFiles({ "CLAUDE.md": ponytailSkill }, "/home/sandbox/workspace");
+    await sb.writeFiles({ "CLAUDE.md": ponytailSkill });
     return cleanup;
   },
 } satisfies typeof baseAgent;
@@ -78,13 +78,11 @@ Each task is a normal `.eval.ts` file. It uploads a starting workspace, sends a 
 import { defineEval } from "niceeval";
 import { includes } from "niceeval/expect";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 export default defineEval({
   description: "Implement an upload path resolver without explicitly mentioning traversal",
 
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
     await t.sandbox.writeFiles({
       "uploads.py": [
         "import os",

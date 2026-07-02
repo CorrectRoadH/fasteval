@@ -225,12 +225,12 @@ import { defineSandboxAgent, shared } from "niceeval/adapter";
   Runs a single command inside the sandbox. Returns `{ stdout, stderr, exitCode }`.
 
   ```ts
-  const res = await ctx.sandbox.runCommand("npm", ["install"], { cwd: "/workspace" });
+  const res = await ctx.sandbox.runCommand("npm", ["install"]);
   ```
 
   **`opts` fields:**
   - `env?: Record<string, string>` — extra environment variables merged into the command's environment
-  - `cwd?: string` — working directory override for this command
+  - `cwd?: string` — working directory override for this command. Relative paths resolve under `ctx.sandbox.workdir`; omitted commands run in `workdir`.
   - `root?: boolean` — run as root (`false` by default). Use for privileged setup steps like installing system packages.
 
   ```ts
@@ -258,27 +258,23 @@ import { defineSandboxAgent, shared } from "niceeval/adapter";
   Reads a file from the sandbox filesystem and returns its contents as a string.
 </ResponseField>
 
-<ResponseField name="writeFiles(files)" type="(files: Record<string, string>) => Promise<void>">
+<ResponseField name="workdir" type="string">
+  The sandbox's default workspace directory. Relative sandbox paths, omitted upload targets, and omitted command `cwd` values resolve here. Use it only when you need to pass an absolute path to an agent prompt or debug output.
+</ResponseField>
+
+<ResponseField name="writeFiles(files, targetDir?)" type="(files: Record<string, string>, targetDir?: string) => Promise<void>">
   Writes one or more files into the sandbox. Keys are paths, values are file
-  contents.
+  contents. If `targetDir` is omitted, files are written under `workdir`.
 
   ```ts
   await ctx.sandbox.writeFiles({
-    "/workspace/.env": "API_KEY=test",
+    ".env": "API_KEY=test",
   });
   ```
 </ResponseField>
 
-<ResponseField name="uploadFiles(files)" type="(files: SandboxFile[]) => Promise<void>">
-  Uploads a batch of files (including binary) to the sandbox.
-</ResponseField>
-
-<ResponseField name="runCommand(..., { cwd })" type="() => string">
-  Returns the current working directory path inside the sandbox.
-</ResponseField>
-
-<ResponseField name="runCommand(..., { cwd: path })" type="(path: string) => void">
-  Sets the default working directory for subsequent commands.
+<ResponseField name="uploadFiles(files, targetDir?)" type="(files: SandboxFile[], targetDir?: string) => Promise<void>">
+  Uploads a batch of files, including binary files. If `targetDir` is omitted, files are uploaded under `workdir`.
 </ResponseField>
 
 <ResponseField name="stop()" type="() => Promise<void>">

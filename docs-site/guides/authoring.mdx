@@ -184,12 +184,10 @@ Coding-agent evals are still normal `.eval.ts` files. Their `test` function prep
 ```ts
 import { defineEval } from "niceeval";
 
-const WORKSPACE = new URL("../workspaces/ts-starter/", import.meta.url).pathname;
-
 export default defineEval({
   description: "Create a Button component",
   async test(t) {
-    await t.sandbox.uploadDirectory(WORKSPACE, "/home/sandbox/workspace");
+    await t.sandbox.uploadDirectory("../workspaces/ts-starter");
     await t.send("Create src/components/Button.tsx with label and onClick props.").then((turn) => turn.expectOk());
     t.fileChanged("src/components/Button.tsx");
   },

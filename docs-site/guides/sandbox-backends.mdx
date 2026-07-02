@@ -12,20 +12,20 @@ Every backend implements the same interface. These are the only operations an ad
 
 ```ts
 interface Sandbox {
+  readonly workdir: string;
+
   runCommand(cmd: string, args?: string[], opts?: {
     env?: Record<string, string>;
-    cwd?: string;
+    cwd?: string;     // omitted -> workdir; relative -> under workdir
     root?: boolean;  // run as root (default: false → non-root)
   }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
   runShell(script: string, opts?): Promise<CommandResult>;  // run a full shell script
 
-  readFile(path: string): Promise<string>;
-  writeFiles(files: Record<string, string>): Promise<void>;
-  uploadFiles(files: SandboxFile[]): Promise<void>;         // batch upload, supports binary
-
-  runCommand(cmd: string, args?: string[], opts?: { cwd?: string }): Promise<CommandResult>;
-  runShell(script: string, opts?: { cwd?: string }): Promise<CommandResult>;
+  readFile(path: string): Promise<string>;                  // relative -> under workdir
+  writeFiles(files: Record<string, string>, targetDir?: string): Promise<void>;
+  uploadFiles(files: SandboxFile[], targetDir?: string): Promise<void>;
+  uploadDirectory(localDir: string, targetDir?: string): Promise<void>;
 
   stop(): Promise<void>;
 }
@@ -70,7 +70,7 @@ The `root: true` semantics are consistent across every backend:
     Docker is the default backend and requires no cloud credentials — only a local Docker installation. It is the right choice for local development and most CI pipelines.
 
     **How it works:**
-    - Starts a `node:24-slim` container running `sleep infinity`
+    - Starts a long-lived `node:24-slim` container that tails the sandbox log file
     - Runs all commands via `docker exec` (with `AutoRemove` on stop)
     - Default user is `node` (UID 1000); global npm packages install to the user directory and are added to `PATH`
     - The slim base image is bootstrapped with `ca-certificates` and `git`
@@ -91,10 +91,10 @@ The `root: true` semantics are consistent across every backend:
   <Tab title="Vercel">
     The Vercel backend spins up a cloud micro-VM. It is well-suited for high-concurrency CI runs where you don't want to manage Docker infrastructure.
 
-    **Requirements:** set `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` in your environment.
+    **Requirements:** set `VERCEL_API_TOKEN`, `VERCEL_TEAM_ID`, and optionally `VERCEL_PROJECT_ID` in your environment.
 
     ```shell
-    VERCEL_TOKEN=... npx niceeval exp local fixtures/button --sandbox vercel
+    VERCEL_API_TOKEN=... VERCEL_TEAM_ID=... npx niceeval exp local fixtures/button --sandbox vercel
     ```
 
     ```ts
@@ -104,10 +104,10 @@ The `root: true` semantics are consistent across every backend:
     });
     ```
 
-    The Vercel backend handles streaming command timeouts for long-running agent sessions using a detach-and-reconnect strategy so commands are never cut short mid-execution.
+    The Vercel backend handles cloud session lifetime by snapshotting and rotating long-lived sessions when needed.
   </Tab>
   <Tab title="Auto">
-    The `"auto"` mode inspects the environment and picks the best available backend. If `VERCEL_TOKEN` or `VERCEL_OIDC_TOKEN` is present, it uses Vercel; otherwise it falls back to Docker.
+    The `"auto"` mode inspects the environment and picks the best available backend. If Vercel Sandbox credentials are present, it uses Vercel; otherwise it falls back to Docker.
 
     ```ts
     // niceeval.config.ts
@@ -172,12 +172,14 @@ The Docker backend is zero-config and handles all the quirks of running a coding
 
 ## Vercel backend details
 
-The Vercel backend requires one of:
-- `VERCEL_TOKEN` — a personal access token from your Vercel account settings
-- `VERCEL_OIDC_TOKEN` — an OIDC token, suitable for CI environments with Vercel's OIDC integration
+The Vercel backend requires:
+- `VERCEL_API_TOKEN` — a personal access token from your Vercel account settings
+- `VERCEL_TEAM_ID` — the team that owns the sandbox project
+- `VERCEL_PROJECT_ID` — optional; defaults to `vercel-sandbox-default-project`
 
 ```shell
-export VERCEL_TOKEN=vercel_...
+export VERCEL_API_TOKEN=vercel_...
+export VERCEL_TEAM_ID=team_...
 npx niceeval exp local fixtures/button --sandbox vercel
 ```
 

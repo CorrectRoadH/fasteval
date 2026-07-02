@@ -17,8 +17,8 @@ Adapter 常用操作包括：
 | `readFile(path)` | 读取文件 |
 | `writeFiles(files)` | 写入一组文件 |
 | `uploadFiles(files)` | 上传 workspace 或测试文件 |
-| `runCommand(..., { cwd })` | 读取当前工作目录 |
-| `runCommand(..., { cwd: path })` | 切换工作目录 |
+| `workdir` | 后端真实工作目录；省略的 `cwd` / `targetDir` 都解析到这里 |
+| `runCommand(..., { cwd })` | 单条命令临时切换工作目录；相对路径按 `workdir` 解析 |
 | `stop()` | 销毁环境 |
 
 ## 选择后端
