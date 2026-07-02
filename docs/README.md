@@ -97,10 +97,10 @@ export default defineEval({
 ```
 
 ```sh
-npx niceeval exp local fixtures/button --sandbox docker
+npx niceeval exp local fixtures/button
 ```
 
-完整流程见 [Getting Started](getting-started.md)。
+`local` 实验文件里给这个 agent 配一个 `sandbox: dockerSandbox()`(从 `niceeval/sandbox` 导入)——沙箱型 agent 必须显式指定后端,没有默认值,也没有 `--sandbox` 这种 CLI 覆盖。完整流程见 [Getting Started](getting-started.md)。
 
 ## 接着读哪一篇
 

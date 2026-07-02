@@ -38,6 +38,7 @@ Plugin on/off belongs in the experiment, not in the eval ID or CLI positionals. 
 ```ts
 import { defineExperiment } from "niceeval";
 import { claudeCodeAgent } from "niceeval/adapter";
+import { dockerSandbox } from "niceeval/sandbox";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,7 +61,7 @@ export default defineExperiment({
   description: "claude-code + ponytail plugin",
   agent: ponytailAgent,
   model: "claude-sonnet-4-6",
-  sandbox: "docker",
+  sandbox: dockerSandbox(),
   runs: 3,
   earlyExit: false,
   budget: 15,

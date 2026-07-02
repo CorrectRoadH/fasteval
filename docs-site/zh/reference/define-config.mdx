@@ -11,7 +11,6 @@ import { defineConfig } from "niceeval";
 
 export default defineConfig({
   judge: { model: "gpt-5.4-mini" },
-  sandbox: "auto",
   maxConcurrency: 4,
   timeoutMs: 300_000,
 });
@@ -33,8 +32,8 @@ export default defineConfig({
   单个 attempt 的超时时间，单位毫秒。
 </ParamField>
 
-<ParamField body="sandbox" type="SandboxOption">
-  默认 sandbox 后端。起始文件不会自动上传；sandbox eval 在 `test(t)` 里调用 `t.sandbox.uploadDirectory(...)`、`uploadFiles(...)` 或 `writeFiles(...)`。
+<ParamField body="sandbox" type="SandboxSpec">
+  默认 sandbox 后端，用 `niceeval/sandbox` 里的 `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` 构造，不再接受 `"docker"` 这类裸字符串；省略该字段则从环境变量自动探测后端，或用 `--sandbox` 在 CLI 按名字指定。起始文件不会自动上传；sandbox eval 在 `test(t)` 里调用 `t.sandbox.uploadDirectory(...)`、`uploadFiles(...)` 或 `writeFiles(...)`。
 </ParamField>
 
 niceeval 把环境准备放在普通代码里：eval 自己需要的文件写在 `test(t)`，agent 自己的准备写在 adapter 的 `setup`。

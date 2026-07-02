@@ -1,4 +1,5 @@
 import { defineExperiment } from "niceeval";
+import { dockerSandbox } from "niceeval/sandbox";
 import { claudeCodeAgent } from "niceeval/adapter";
 
 // ponytail 基准组：裸 Claude Code，没有 ponytail skill。
@@ -7,7 +8,7 @@ export default defineExperiment({
   description: "claude-code（无 ponytail skill，对照组）",
   agent: claudeCodeAgent(),
   model: "claude-sonnet-4-6",
-  sandbox: "docker",
+  sandbox: dockerSandbox(),
   runs: 3,
   earlyExit: false,
   budget: 15,

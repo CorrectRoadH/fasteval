@@ -82,7 +82,7 @@ export default defineEval({
 有坐标系后,同一条 eval:
 
 ```typescript
-// ✅ after:全程零绝对路径,--sandbox docker / e2b / vercel 零改动切换
+// ✅ after:全程零绝对路径,换 dockerSandbox() / e2bSandbox() / vercelSandbox() 零改动切换
 export default defineEval({
   description: "实现 Button 组件",
   async test(t) {
@@ -139,43 +139,39 @@ await sandbox.runCommand("npm", ["install"]);   // 默认非 root,cwd 默认 wor
 
 约定:**默认值(非 root)与 `root` 的语义在所有后端保持一致**,不因后端而变。本就全程 root 的后端把提 root 视作 no-op;完全无法提 root 的后端可不支持(抛错)—— 但这是"不支持",不是"语义不同"。eval 因此不必感知底下是哪个后端。
 
-## 后端选择
+## 后端选择:没有默认值,没有按名字选
+
+`sandbox` 字段的类型是 `SandboxOption`(= `SandboxSpec`,一个按 `backend` 区分的数据结构),**不接受裸字符串,也不会自动探测环境替你选一个**。沙箱型 agent 必须显式给 `sandbox` 一个工厂函数产出的 spec——写在 experiment 的 `sandbox` 字段,或写在 `niceeval.config.ts` 的 `sandbox` 字段做全项目兜底(`config.sandbox`,experiment 没设时用它)。两处都没设、又用了沙箱型 agent 时,`resolveSandbox()` 直接抛错,不会替你猜环境、不会静默兜底到某个后端。也没有 `--sandbox <name>` 这种 CLI 覆盖——后端选择是 experiment/config 的书面配置,不是运行时临时参数。
 
 ```typescript
-type SandboxBackend = "docker" | "vercel" | "e2b" | "auto" | string;
-```
+import { defineExperiment } from "niceeval";
+import { dockerSandbox } from "niceeval/sandbox";
+import { claudeCodeAgent } from "niceeval/adapter";
 
-`auto` 按环境探测:有 `VERCEL_API_TOKEN` / `VERCEL_TOKEN` / `VERCEL_OIDC_TOKEN` → vercel;否则有 `E2B_API_KEY` → e2b;否则 → docker。也可显式 `--sandbox docker`。解析逻辑收在 `sandbox/resolve.ts`,**核心不按后端名分支**,只调 `createSandbox(opts)` 拿回一个 `Sandbox`。
-
-```typescript
-// sandbox/resolve.ts
-export function resolveBackend(opts): SandboxBackend {
-  if (opts.backend && opts.backend !== "auto") return opts.backend;
-  if (process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN || process.env.VERCEL_OIDC_TOKEN) return "vercel";
-  if (process.env.E2B_API_KEY) return "e2b";
-  return "docker";
-}
+export default defineExperiment({
+  agent: claudeCodeAgent(),
+  sandbox: dockerSandbox(),   // 必填,沙箱型 agent 没有它就报错
+});
 ```
 
 ## Sandbox 作为数据结构(带参数)
 
-后端名只是个字符串,带不了参数。和 [agent](adapters/README.md) 一样,sandbox 也能用**数据结构**定义,于是每个后端可带自己的参数。工厂函数(从 `niceeval/sandbox` 导出)产出 spec,放进 `experiment.sandbox`;字符串后端名仍然兼容。
+后端名只是个字符串,带不了参数,也没法表达"哪个是镜像、哪个是快照 ID"。和 [agent](adapters/README.md) 一样,sandbox 用**数据结构**定义:工厂函数(从 `niceeval/sandbox` 导出)产出 spec,放进 `experiment.sandbox`。
 
 ```typescript
 import { dockerSandbox, vercelSandbox, e2bSandbox } from "niceeval/sandbox";
 
+dockerSandbox()                                     // docker:用默认镜像
 dockerSandbox({ image: "niceeval-agents:node24" })  // docker:指定镜像
 vercelSandbox({ snapshotId: "snap_xxx" })            // vercel:从快照起
 e2bSandbox({ template: "niceeval-agents" })          // e2b:指定模板
-
-// 仍可用字符串:sandbox: "docker" / "vercel" / "e2b"
 ```
 
-`sandbox: SandboxBackend | SandboxSpec`。`sandbox/resolve.ts` 把两种形式都归一化成 `{ backend, image?, snapshotId?, template?, runtime? }`,再按 `backend` 派发到各后端的 `create()` —— **核心仍不按后端名分支**,参数只在对应后端的 `create()` 里消费。
+`sandbox/resolve.ts` 把 spec 归一化成 `{ backend, image?, snapshotId?, template?, runtime? }`,再按 `backend` 派发到各后端的 `create()` —— **核心仍不按后端名分支**,参数只在对应后端的 `create()` 里消费。
 
 参数的典型用途是**预制模板**:把 agent CLI 烘焙进镜像/模板,让后续 eval 跳过安装直接开跑(见 [`sandbox/`](../sandbox/README.md))。
 
-## Docker 后端(默认,零云依赖)
+## Docker 后端(本地,零云依赖)
 
 最常用、最便宜:无需任何云 token,本地有 Docker 即可。要点:
 

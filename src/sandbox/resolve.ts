@@ -1,9 +1,11 @@
-// 沙箱后端解析:把 --sandbox / config.sandbox / experiment.sandbox(字符串后端名 或
-// spec 数据结构)折叠成一个具体后端 + 参数,并按需创建实例。
+// 沙箱后端解析:把 config.sandbox / experiment.sandbox(工厂函数产出的 spec 数据结构)
+// 折叠成一个具体后端 + 参数,并按需创建实例。`sandbox` 没有默认值也没有按名字选的入口——
+// 沙箱型 agent 必须显式给 dockerSandbox() / vercelSandbox() / e2bSandbox() / defineSandbox(),
+// 省略时 resolveSandbox() 直接抛错,不猜环境、不兜底。
 // 后端名的行为分支只允许出现在 sandbox/ 内(见 docs/architecture.md)。
 
 import { Effect } from "effect";
-import type { CustomSandboxSpec, Sandbox, SandboxBackend, SandboxOption, SandboxRuntime } from "../types.ts";
+import type { CustomSandboxSpec, Sandbox, SandboxOption, SandboxRuntime } from "../types.ts";
 import { registerSandbox, stopSandbox } from "./registry.ts";
 import { normalizeSandboxPaths } from "./paths.ts";
 import { t } from "../i18n/index.ts";
@@ -23,37 +25,10 @@ export interface ResolvedSandbox {
   recommendedConcurrency?: number;
 }
 
-/**
- * 决定用哪个后端:
- * - 显式指定且非 "auto" → 直接用。
- * - 否则:env 里有 VERCEL_API_TOKEN / VERCEL_TOKEN / VERCEL_OIDC_TOKEN → "vercel"。
- * - 再否则:env 里有 E2B_API_KEY → "e2b"。
- * - 再否则 → "docker"。
- */
-export function resolveBackend(opts: { backend?: SandboxBackend }): SandboxBackend {
-  const { backend } = opts;
-  if (backend && backend !== "auto") {
-    return backend;
-  }
-  if (process.env.VERCEL_API_TOKEN || process.env.VERCEL_TOKEN || process.env.VERCEL_OIDC_TOKEN) {
-    return "vercel";
-  }
-  if (process.env.E2B_API_KEY) {
-    return "e2b";
-  }
-  return "docker";
-}
-
-/** 把字符串后端名 或 spec 数据结构 归一化成 ResolvedSandbox(spec 的 backend 已是具体值,直接用)。 */
+/** 把 spec 数据结构归一化成 ResolvedSandbox;省略(undefined)直接报错——没有默认后端。 */
 export function resolveSandbox(opt: SandboxOption | undefined, runtimeDefault?: SandboxRuntime): ResolvedSandbox {
-  if (opt && typeof opt === "object") {
-    return { ...opt, runtime: opt.runtime ?? runtimeDefault };
-  }
-  const backend = resolveBackend({ backend: opt });
-  if (backend !== "docker" && backend !== "vercel" && backend !== "e2b") {
-    throw new Error(t("sandbox.backendNotImplemented", { backend }));
-  }
-  return { backend, runtime: runtimeDefault };
+  if (!opt) throw new Error(t("sandbox.missingSpec"));
+  return { ...opt, runtime: opt.runtime ?? runtimeDefault };
 }
 
 /**

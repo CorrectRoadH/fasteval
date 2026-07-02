@@ -30,7 +30,7 @@ export default defineExperiment({
   earlyExit?: boolean;                        // 先过一次即停其余(默认 true)
   evals?: "*" | string[] | ((id: string) => boolean);  // 跑哪些 eval(默认 "*")
   timeoutMs?: number;                        // 单次运行超时
-  sandbox?: SandboxBackend | SandboxSpec;    // 沙箱型 agent 在哪跑;省略 = auto 探测。`--sandbox` 可临时覆盖
+  sandbox?: SandboxSpec;                     // 沙箱型 agent 在哪跑,工厂函数产出(dockerSandbox() 等);省略 = auto 探测。`--sandbox` 可临时覆盖
   budget?: number;                           // 整个实验估算成本上限($),超了停止派发
 });
 ```

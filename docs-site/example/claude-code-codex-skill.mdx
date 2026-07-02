@@ -40,6 +40,7 @@ Skill injection belongs to the experiment. The example writes `skills/zod.md` in
 ```ts
 import { defineExperiment } from "niceeval";
 import { claudeCodeAgent } from "niceeval/adapter";
+import { dockerSandbox } from "niceeval/sandbox";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,7 +63,7 @@ export default defineExperiment({
   description: "claude-code + zod skill",
   agent: zodAgent,
   model: "claude-sonnet-4-6",
-  sandbox: "docker",
+  sandbox: dockerSandbox(),
   runs: 3,
   earlyExit: false,
   budget: 10,

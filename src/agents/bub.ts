@@ -45,7 +45,6 @@ const OTEL_PLUGIN =
 
 const INSTALL_SPEC = `bub --override(${BUB_OVERRIDE}) --with ${OTEL_PLUGIN}`;
 const INSTALL_HASH = createHash("md5").update(INSTALL_SPEC).digest("hex").slice(0, 12);
-const DEFAULT_WORKSPACE = "/home/sandbox/workspace";
 
 function diskCachePath(home: string): string {
   const homeKey = createHash("md5").update(home).digest("hex").slice(0, 8);
@@ -159,7 +158,7 @@ export function bubAgent(config?: BubConfig): Agent {
 
     async setup(sb) {
       const home = (await sb.runShell("printf '%s' $HOME")).stdout.trim() || "/home/node";
-      const workspace = DEFAULT_WORKSPACE;
+      const workspace = sb.workdir;
       sessionInfo.set(sb.sandboxId, { home, workspace });
       await ensureBub(sb, home);
 
@@ -191,7 +190,7 @@ export function bubAgent(config?: BubConfig): Agent {
 
     async send(input, ctx) {
       const sb = ctx.sandbox;
-      const info = sessionInfo.get(sb.sandboxId) ?? { home: "/home/node", workspace: DEFAULT_WORKSPACE };
+      const info = sessionInfo.get(sb.sandboxId) ?? { home: "/home/node", workspace: sb.workdir };
       const { home, workspace } = info;
       const bubHome = `${home}/.bub`;
       const model = ctx.model ?? "gpt-5.4";

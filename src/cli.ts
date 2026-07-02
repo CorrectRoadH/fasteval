@@ -22,7 +22,6 @@ import type { Config, DiscoveredExperiment, Reporter } from "./types.ts";
 
 interface Flags {
   agent?: string;
-  sandbox?: string;
   model?: string;
   runs?: number;
   maxConcurrency?: number;
@@ -98,7 +97,6 @@ function parseArgs(argv: string[]): { command: string; positionals: string[]; fl
       const value = argv[++i];
       switch (name) {
         case "agent": flags.agent = value; break;
-        case "sandbox": flags.sandbox = value; break;
         case "model": flags.model = value; break;
         case "runs": flags.runs = Number(value); break;
         case "max-concurrency": flags.maxConcurrency = Number(value); break;
@@ -108,6 +106,10 @@ case "timeout": flags.timeout = Number(value); break;
         case "junit": flags.junit = value; break;
         case "out": flags.out = value; break;
         case "port": flags.port = Number(value); break;
+        case "sandbox":
+          process.stderr.write(t("cli.sandboxFlagRemoved"));
+          process.exit(1);
+          break;
         default: break; // 未知 flag 忽略
       }
     } else {
@@ -275,7 +277,7 @@ async function main(): Promise<void> {
         flags: exp.flags ?? {},
         runs: flags.runs ?? exp.runs ?? 1,
         earlyExit: flags.earlyExit ?? exp.earlyExit ?? true,
-        sandbox: flags.sandbox ?? exp.sandbox ?? config.sandbox,
+        sandbox: exp.sandbox ?? config.sandbox,
         timeoutMs: flags.timeout ?? exp.timeoutMs ?? config.timeoutMs,
         budget: flags.budget ?? exp.budget,
         evalFilter: evalsFilterFromExperiment(exp.evals, extraPatterns),

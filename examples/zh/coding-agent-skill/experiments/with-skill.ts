@@ -1,4 +1,5 @@
 import { defineExperiment } from "niceeval";
+import { dockerSandbox } from "niceeval/sandbox";
 import { claudeCodeAgent } from "niceeval/adapter";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -26,7 +27,7 @@ export default defineExperiment({
   description: "claude-code + zod skill（本地注入）",
   agent: zodAgent,
   model: "claude-sonnet-4-6",
-  sandbox: "docker",
+  sandbox: dockerSandbox(),
   runs: 3,
   earlyExit: false,
   budget: 10,

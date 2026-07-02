@@ -87,8 +87,7 @@ export default defineConfig({
   // per-eval timeout in milliseconds (5 minutes)
   timeoutMs: 300_000,
 
-  // "auto" uses a cloud sandbox token if present, otherwise Docker
-  sandbox: "auto",
+  // sandbox omitted here: uses a cloud sandbox token if present, otherwise Docker
 });
 ```
 
@@ -98,7 +97,7 @@ export default defineConfig({
 | `reporters` | `Reporter[]` | Reporters that emit results after every run |
 | `maxConcurrency` | `number` | Maximum number of evals running at the same time |
 | `timeoutMs` | `number` | Per-eval timeout in milliseconds |
-| `sandbox` | `"auto"` \| `"docker"` | Sandbox backend for coding-agent evals |
+| `sandbox` | `SandboxSpec` | Sandbox backend for coding-agent evals, built with `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox`; omit to auto-detect |
 
 Select agents in experiment files:
 

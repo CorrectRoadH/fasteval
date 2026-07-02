@@ -15,7 +15,6 @@ export default defineConfig({
   reporters: [JUnit(".niceeval/junit.xml")],
   maxConcurrency: 4,
   timeoutMs: 300_000,
-  sandbox: "auto",
 });
 ```
 
@@ -35,8 +34,8 @@ export default defineConfig({
   Per-attempt timeout in milliseconds.
 </ParamField>
 
-<ParamField body="sandbox" type='"auto" | "docker" | "vercel" | "e2b" | SandboxSpec'>
-  Default sandbox backend for sandbox agents. Override per experiment or with `--sandbox`.
+<ParamField body="sandbox" type="SandboxSpec">
+  Default sandbox backend for sandbox agents, built with `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox` — bare strings like `"docker"` are no longer accepted here. Omit the field to auto-detect the backend from env vars. Override per experiment, or pick a backend by name at the CLI with `--sandbox`.
 </ParamField>
 
 niceeval keeps environment preparation in ordinary code. Prepare files inside `test(t)` with `t.sandbox.writeFiles`, `uploadFiles`, or `uploadDirectory`; put adapter setup in the agent adapter.

@@ -11,7 +11,6 @@ import { defineConfig } from "niceeval";
 
 export default defineConfig({
   judge: { model: "gpt-5.4-mini" },
-  sandbox: "auto",
   maxConcurrency: 4,
   timeoutMs: 300_000,
 });
@@ -33,6 +32,6 @@ export default defineConfig({
   Per-attempt timeout in milliseconds.
 </ParamField>
 
-<ParamField body="sandbox" type="SandboxOption">
-  Default sandbox backend. Files are not uploaded automatically; sandbox evals call `t.sandbox.uploadDirectory(...)`, `uploadFiles(...)`, or `writeFiles(...)` in `test(t)`.
+<ParamField body="sandbox" type="SandboxSpec">
+  Default sandbox backend, built with `dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` from `niceeval/sandbox`; omit the field to auto-detect from env vars. Files are not uploaded automatically; sandbox evals call `t.sandbox.uploadDirectory(...)`, `uploadFiles(...)`, or `writeFiles(...)` in `test(t)`.
 </ParamField>

@@ -59,6 +59,7 @@ type PluginSpec =
 
 ```typescript
 import { defineExperiment } from "niceeval";
+import { dockerSandbox } from "niceeval/sandbox";
 import { claudeCodeAgent, codexAgent, bubAgent } from "niceeval/adapter";
 
 export default defineExperiment({
@@ -68,7 +69,7 @@ export default defineExperiment({
     skills: [{ kind: "local", path: "examples/zh/coding-agent-skill/skills/zod.md" }],
   }),
   model: "gpt-5.4",
-  sandbox: "docker",
+  sandbox: dockerSandbox(),
 });
 ```
 

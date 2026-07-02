@@ -88,7 +88,7 @@
 | `reporters` | `Reporter[]` | 全局报告器(见 [Observability](observability.md#reporters)) |
 | `maxConcurrency` | `number` | 并发上限(见 [Runner](runner.md#调度有界并发)) |
 | `timeoutMs` | `number` | 单 eval 超时 |
-| `sandbox` | `SandboxOption` | 项目默认 sandbox 后端;experiment 或 `--sandbox` 可覆盖 |
+| `sandbox` | `SandboxOption` | 项目默认 sandbox spec(`dockerSandbox()` 等工厂产出);experiment 可覆盖。两处都没设、又用了沙箱型 agent 时直接报错——没有隐式默认,也没有 `--sandbox` 这种 CLI 覆盖 |
 | `pricing` | `Record<string, Price>` | 价格表覆盖,合并在内置快照之上(见 [Observability](observability.md#换算成本价格表从哪来)) |
 
 agent 不在 config 里注册:每个 experiment 直接引用一个 agent adapter(见 [Experiments](experiments.md#defineexperiment-的形状))。config 只管项目级默认与全局资源。

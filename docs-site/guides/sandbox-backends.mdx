@@ -83,8 +83,11 @@ The `root: true` semantics are consistent across every backend:
 
     ```ts
     // niceeval.config.ts
+    import { defineConfig } from "niceeval";
+    import { dockerSandbox } from "niceeval/sandbox";
+
     export default defineConfig({
-      sandbox: "docker",
+      sandbox: dockerSandbox(),
     });
     ```
   </Tab>
@@ -99,20 +102,25 @@ The `root: true` semantics are consistent across every backend:
 
     ```ts
     // niceeval.config.ts
+    import { defineConfig } from "niceeval";
+    import { vercelSandbox } from "niceeval/sandbox";
+
     export default defineConfig({
-      sandbox: "vercel",
+      sandbox: vercelSandbox(),
     });
     ```
 
     The Vercel backend handles cloud session lifetime by snapshotting and rotating long-lived sessions when needed.
   </Tab>
-  <Tab title="Auto">
-    The `"auto"` mode inspects the environment and picks the best available backend. If Vercel Sandbox credentials are present, it uses Vercel; otherwise it falls back to Docker.
+  <Tab title="Auto (default)">
+    Omitting the `sandbox` field entirely inspects the environment and picks the best available backend. If Vercel Sandbox credentials are present, it uses Vercel; otherwise it falls back to Docker. The same auto-detection also runs when you pass `--sandbox auto` at the CLI.
 
     ```ts
     // niceeval.config.ts
+    import { defineConfig } from "niceeval";
+
     export default defineConfig({
-      sandbox: "auto",   // the recommended default for most teams
+      // sandbox omitted: the recommended default for most teams
     });
     ```
 
@@ -145,13 +153,16 @@ You can select the backend on the CLI, in config, or by relying on auto-detectio
   <Step title="Config file">
     ```ts
     // niceeval.config.ts
+    import { defineConfig } from "niceeval";
+    import { dockerSandbox } from "niceeval/sandbox";
+
     export default defineConfig({
-      sandbox: "auto",   // "docker" | "vercel" | "auto" | "<third-party-name>"
+      sandbox: dockerSandbox(),   // or vercelSandbox() / e2bSandbox() / a third-party factory
     });
     ```
   </Step>
   <Step title="Auto-detection fallback">
-    If neither is set, niceeval runs `resolveBackend` which returns `"vercel"` when a cloud token is present and `"docker"` otherwise.
+    If neither is set — no `--sandbox` flag, and no `sandbox` field in config — niceeval runs `detectBackend()` which returns `"vercel"` when a cloud token is present and `"docker"` otherwise.
   </Step>
 </Steps>
 

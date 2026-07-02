@@ -69,7 +69,7 @@ export default defineConfig({
   reporters: [Console(), JUnit(".niceeval/junit.xml")],
   maxConcurrency: 8,
   timeoutMs: 300_000,
-  sandbox: "auto",  // uses cloud token if available, otherwise Docker
+  // sandbox omitted: auto-detects a cloud token if available, otherwise Docker
 });
 ```
 

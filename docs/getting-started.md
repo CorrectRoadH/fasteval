@@ -175,12 +175,14 @@ export default defineEval({
 });
 ```
 
+`experiments/local.ts` 里给这个沙箱型 agent 加一个 `sandbox: dockerSandbox()`(从 `niceeval/sandbox` 导入)——沙箱后端没有默认值,也没有 `--sandbox` 这种 CLI 覆盖,必须写进 experiment(或 `niceeval.config.ts` 兜底)。
+
 **跑起来:**
 
 ```sh
 # 直连 API + 本地 Docker,不需要任何云 token
 export ANTHROPIC_API_KEY=sk-ant-...
-npx niceeval exp local fixtures/button --sandbox docker
+npx niceeval exp local fixtures/button
 
 # 跑 10 次取通过率,先过一次就早停
 npx niceeval exp local fixtures/button --runs 10 --early-exit

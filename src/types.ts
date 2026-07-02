@@ -372,16 +372,17 @@ export interface ReadSourceFilesOptions {
   ignoreFiles?: string[];
 }
 
-export type SandboxBackend = "docker" | "vercel" | "e2b" | "auto" | string;
+/** 内置后端名;只在 sandbox/resolve.ts 内部做环境探测和 CLI `--sandbox` 解析用,不出现在 `sandbox` 字段的类型里。 */
+export type SandboxBackend = "docker" | "vercel" | "e2b";
 
 /** 镜像/模板里的 Node 运行时版本。 */
 export type SandboxRuntime = "node20" | "node24";
 
 /**
  * Sandbox 的「数据结构」定义 —— 与 agent 一样可带参数(见 docs/sandbox.md)。
- * 用工厂函数构造(`dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()`),
- * 放进 config / experiment 的 `sandbox` 字段;字符串后端名(`"docker"` 等)仍兼容。
- * 各后端的参数互不相同 —— 这是个按 `backend` 区分的可辨识联合(discriminated union)。
+ * 必须用工厂函数构造(`dockerSandbox()` / `vercelSandbox()` / `e2bSandbox()` / `defineSandbox()`),
+ * 放进 config / experiment 的 `sandbox` 字段 —— 字段类型只接受这个数据结构,不接受裸字符串,
+ * 省略字段 = 按环境自动探测后端。各后端的参数互不相同 —— 这是个按 `backend` 区分的可辨识联合(discriminated union)。
  */
 export interface DockerSandboxSpec {
   readonly backend: "docker";
@@ -415,8 +416,8 @@ export interface CustomSandboxSpec {
 
 export type SandboxSpec = DockerSandboxSpec | VercelSandboxSpec | E2BSandboxSpec | CustomSandboxSpec;
 
-/** config / experiment 的 `sandbox` 字段:后端名(字符串)或带参数的 spec 数据结构。 */
-export type SandboxOption = SandboxBackend | SandboxSpec;
+/** config / experiment 的 `sandbox` 字段:必须是工厂函数产出的 spec 数据结构,省略 = 自动探测后端。 */
+export type SandboxOption = SandboxSpec;
 
 export interface CommandOptions {
   env?: Record<string, string>;
