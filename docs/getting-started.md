@@ -203,7 +203,7 @@ Discovered 3 evals
 Results:  2 passed, 1 failed, 0 skipped
 ```
 
-详细工件落在 `.niceeval/<时间戳>/`:`summary.json`、逐 eval 结果、事件流、transcript、生成文件 diff、测试输出。结构详见 [Observability](observability.md)。
+详细工件落在 `.niceeval/<时间戳>/`:run 级 `summary.json`,以及 attempt 级 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。结构详见 [Results Format](results-format.md)。
 
 ## 接进 CI
 

@@ -86,7 +86,7 @@ niceeval view --out .niceeval/report.html  # 导出静态 HTML,不启动服务
 niceeval clean                        # 清掉这些历史运行结果
 ```
 
-每次 `exp` 运行会写 `.niceeval/<timestamp>/summary.json` 与 `results.jsonl`;`view` 启动本地服务后默认用系统浏览器打开 URL,并直接读这些结构化工件。当前查看器先提供 Next.js evals 风格的密集榜单:按 experiment 聚合、可排序、可搜索、可展开看单个 eval attempt 的断言/错误/用量。
+每次 `exp` 运行会写 `.niceeval/<timestamp>/summary.json` 与 attempt 级 JSON 工件;`view` 启动本地服务后默认用系统浏览器打开 URL,并直接读这些结构化工件。当前查看器先提供 Next.js evals 风格的密集榜单:按 experiment 聚合、可排序、可搜索、可展开看单个 eval attempt 的断言/错误/用量。结果保存格式见 [Results Format](results-format.md)。
 
 ## 输出
 

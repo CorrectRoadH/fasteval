@@ -82,6 +82,7 @@
 | 发现(evals/ 的 *.eval.ts,experiments/ 的实验,路径推导 id) | `src/runner/discover.ts` |
 | 有界并发调度 + 早停 + attempt 编排 + 沙箱生命周期 | `src/runner/run.ts` |
 | 报告器(Console / Json / JUnit) | `src/runner/reporters/{console,json,index}.ts` |
+| 本地结果保存格式(`.niceeval/<run>/summary.json` + attempt 级 JSON 工件) | `src/runner/reporters/artifacts.ts`、`src/types.ts`(`RunSummary` / `EvalResult`) |
 | CLI(默认运行 / exp / list / --dry,.env 加载,两类参数) | `src/cli.ts` |
 | 数据集加载器(loadJson / loadYaml) | `src/loaders/index.ts` |
 

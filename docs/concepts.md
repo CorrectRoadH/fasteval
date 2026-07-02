@@ -76,7 +76,7 @@
 
 **Reporter** / **报告器** —— 消费运行结果的插件,可实现分阶段 `onEvent`(`run:start` / `eval:start` / `eval:complete` / `run:summary` 等),也兼容 `onRunStart` / `onEvalComplete` / `onRunComplete`。内置控制台、JUnit、JSON;可接第三方实验跟踪平台。报告器在独立的串行队列上回调,不阻塞执行池。详见 [Reporters](observability.md#reporters)。
 
-**Artifact** / **工件** —— 落盘的结构化产物,位于 `.niceeval/<时间戳>/`:`summary.json`、逐 eval 的结果 JSON、事件流 ndjson、transcript、生成文件 diff、测试输出。
+**Artifact** / **工件** —— 落盘的结构化产物,位于 `.niceeval/<时间戳>/`:run 级 `summary.json`,以及 attempt 级 `events.json`、`sources.json`、`trace.json`、`o11y.json`、`diff.json`。每个文件都是 JSON,不是 JSONL / NDJSON。详见 [Results Format](results-format.md)。
 
 ## 配置词汇
 

@@ -1,6 +1,6 @@
 # View —— 本地结果查看器(`niceeval view`)
 
-控制台和 `summary.json` 是「当下」的;`niceeval view` 是「事后看图」——不连任何外部服务,只读 `.niceeval/<时间戳>/` 这些结构化工件(见 [Observability](observability.md#结果可视化niceeval-view))。
+控制台和 `summary.json` 是「当下」的;`niceeval view` 是「事后看图」——不连任何外部服务,只读 `.niceeval/<时间戳>/` 这些结构化工件。结果保存格式见 [Results Format](results-format.md),数据来源见 [Observability](observability.md#结果可视化niceeval-view)。
 
 ```sh
 niceeval view                         # 起本地 web,自动打开浏览器,读 .niceeval/ 下所有历史运行
@@ -10,6 +10,77 @@ niceeval view --out .niceeval/report.html  # 导出静态 HTML
 ```
 
 架构上是**一次性烘焙进单个 HTML+JSON 的静态产物**(`src/view/index.ts` 的 `renderHtml`),不是常驻的多页面 server——`niceeval view` 起的 web 服务每次请求现读现渲染,`--out` 则直接导出成一个可以当 CI 附件传、单文件分享的 HTML。这是刻意的取舍,详见 [References](references.md#调研过判断不值得抄的及理由)。
+
+## 结果版本机制
+
+`niceeval view` 读取的是已经落盘的报告,而报告会比 CLI 活得更久:用户可能几个月后打开 `.niceeval/<run>/summary.json`,也可能把 CI 产物下载到另一台机器上看。所以 view 的版本策略要优先保证两件事:
+
+1. 新版本 CLI 不轻易丢下旧报告。
+2. 真读不了时,错误信息要告诉用户「该用哪个版本看」或「这份历史结果可以删掉」。
+
+具体设计:
+
+- **报告自己带版本。** `summary.json` 顶层放 `format: "niceeval.results"`、`schemaVersion` 和 `producer.version`,设计见 [Results Format · 版本与升级设计](results-format.md#版本与升级设计)。没有这些字段的现有报告视为 legacy v0。
+- **view 有一个支持区间。** 例如当前 view 支持 `schemaVersion` 0 和 1。支持区间写在 loader 常量里,不要散落在 React 组件里。
+- **先 normalize,再渲染。** `readSummary` 不直接返回磁盘 JSON,而是走 `normalizeSummary(raw, path)`。legacy v0、v1、未来 v2 都在这里转成 view 内部统一模型;`aggregateRows`、`AttemptModal`、`TracesPage` 只吃 normalized model。
+- **未知字段不是错误。** 新增 `git`、`environment`、`agentSetup`、`classification` 等字段时,旧 view 可以忽略;新增 artifact kind 也只是不展示。只有必需字段缺失、字段类型错误、或 `schemaVersion` 超出支持区间才算版本/格式错误。
+
+### 报错与降级
+
+`view` 有两种入口,错误处理不同:
+
+- **读整个 `.niceeval/` 目录。** 遇到某个 run 读不了,不要让整个页面失败。loader 应收集 `skippedRuns[]`,继续渲染其它 run,并在页面顶部显示一条可展开提示:哪些 `summary.json` 被跳过、原因是什么、建议怎么处理。
+- **读单个 `summary.json`。** 这是用户明确指定的目标,读不了就应该让命令失败,打印可执行的下一步,不要打开一个空页面。
+
+错误分类:
+
+| 场景 | 行为 | 文案要点 |
+|---|---|---|
+| 没有 `format` / `schemaVersion`,但有 `results[]` + `startedAt` | 按 legacy v0 读 | 可弱提示「旧格式报告」,不阻断 |
+| `format` 不是 `niceeval.results` | 跳过或失败 | 说明这不是 niceeval 报告 |
+| `schemaVersion` 小于最低支持版本 | 跳过或失败 | 建议用写出该报告的 `producer.version` 打开,或先导出/归档后 `niceeval clean` |
+| `schemaVersion` 大于当前支持版本 | 跳过或失败 | 建议升级 niceeval,或用报告里的 `producer.version` 对应版本打开 |
+| 必需字段坏了,例如 `results` 不是数组 | 跳过或失败 | 说明报告可能损坏,给出文件路径 |
+| attempt 工件缺失,例如 `events.json` 不存在 | 页面仍可打开 | 只在展开该 attempt 时显示「artifact missing」 |
+
+命令行错误要给到具体命令,例如:
+
+```text
+Cannot open .niceeval/2026-07-02T03-10-24-123Z/summary.json.
+This report was written by niceeval 0.12.0 with results schema 3,
+but this viewer supports schema 0-1.
+
+Try:
+  npx niceeval@0.12.0 view .niceeval/2026-07-02T03-10-24-123Z/summary.json
+  pnpm dlx niceeval@0.12.0 view .niceeval/2026-07-02T03-10-24-123Z/summary.json
+
+If you no longer need historical reports:
+  niceeval clean
+```
+
+如果 `producer.version` 缺失,文案退化成「upgrade niceeval」或「try an older niceeval matching when the report was created」,不要编造版本号。
+
+### 迁移策略
+
+默认不做隐式迁移。理由:
+
+- eval 结果是审计材料,原地改写会让「当时到底写出了什么」变模糊。
+- view 是读工具,不应该因为用户想看报告而修改 `.niceeval/`。
+- 大多数版本不需要迁移:新增字段、未知 artifact、UI 展示变化都可以通过兼容 loader 解决。
+
+真正需要迁移时再加显式命令,并且默认写到新目录:
+
+```sh
+niceeval migrate-results .niceeval/<old-run>/summary.json --out .niceeval/<new-run>/
+```
+
+迁移命令只解决「旧格式还能确定转换到新格式」的情况;如果某份报告依赖旧版本 view 的展示逻辑,更好的建议仍然是:
+
+```sh
+npx niceeval@<producer.version> view .niceeval/<run>/summary.json
+```
+
+`niceeval clean` 不是迁移工具,只负责删除当前项目的历史运行结果。它适合用户明确表示「旧报告不要了,只想让 view 干净」的场景;不应该在 view 报错时自动执行。
 
 ## 现状(已实现)
 
@@ -47,6 +118,17 @@ niceeval view --out .niceeval/report.html  # 导出静态 HTML
 
 ## 计划中的小功能
 
+### 结果版本提示与跳过列表
+
+实现上先补 loader,再补 UI:
+
+1. `loadSummaries` 返回 `{ loaded, skipped }`,其中 `skipped` 记录 path、reason、detected `schemaVersion`、detected `producer.version`。
+2. `readSummary` 拆成 `parseSummary` + `normalizeSummary`。normalize 支持 legacy v0 和当前 v1。
+3. 目录入口继续渲染已成功读取的 run,页面顶部增加可展开的 skipped report 提示。
+4. 单文件入口遇到不兼容 schema 时直接退出,打印上文的 `npx niceeval@... view ...` 建议。
+
+这比一开始就做 migration 更实际:多数用户只是想看当前报告;旧报告读不了时,用写出它的旧版本 viewer 打开比自动转换更可控。
+
 ### Compare —— 挑两次运行对比
 
 跟 `experiments/compare/`(文档里"一组可对比实验"的示例文件夹名,见 [Experiments](experiments.md#实验怎么组织文件夹--一组可对比的实验))是两回事,别混——这里指 view 里一个新增的小 tab。
@@ -70,5 +152,6 @@ niceeval view --out .niceeval/report.html  # 导出静态 HTML
 ## 相关阅读
 
 - [Observability](observability.md#结果可视化niceeval-view) —— 事件流、trace、usage/cost 这些 view 渲染的数据从哪来。
+- [Results Format](results-format.md) —— view 读取的 `.niceeval/<run>/summary.json` 与 attempt 级 JSON 工件。
 - [References](references.md#vercel-agent-eval--packagesplayground) —— 这次调研 agent-eval playground 的完整记录。
 - [Experiments](experiments.md) —— `experimentId`、可对比组、`niceeval exp` 怎么产生这些历史快照。
