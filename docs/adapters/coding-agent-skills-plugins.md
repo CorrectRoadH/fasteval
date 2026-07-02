@@ -295,7 +295,7 @@ const zodAgent = {
   name: "claude-code+zod-skill",
   async setup(sb, ctx) {
     const cleanup = await baseAgent.setup?.(sb, ctx);
-    await sb.writeFiles({ "CLAUDE.md": zodSkill }, "/home/sandbox/workspace");
+    await sb.writeFiles({ "CLAUDE.md": zodSkill });   // targetDir 省略 → workdir,跨后端可移植
     return cleanup;
   },
 };

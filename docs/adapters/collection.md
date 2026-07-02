@@ -1,0 +1,129 @@
+# 采集设计 —— 通道、矩阵与每个被测对象怎么接
+
+这一篇集中回答:**每个被测对象,行为数据和 trace 从哪条路径采、哪些字段从哪里来。**
+
+分工:[Adapter 契约](contract.md) 定义采集的**目标**(`StreamEvent` / `Turn` 长什么样、每条断言要什么数据);[Adapter 写法 · 采集层](authoring.md#采集层原始数据怎么从-agent-cli-弄到手) 讲通用**纪律**(采集脏 / 转换净、raw string 边界、行级容错);本篇是**具体矩阵**——三条外部路线的对比结论、niceeval 的通道设计、以及 claude-code / codex / bub / AI SDK 各自的字段来源(与 `src/o11y/parsers/` 和 `src/agents/` 现状对齐)。接一个新被测对象时,从[决策树](#接新被测对象的决策树)进。
+
+## 三条外部路线:采集路径与字段的取舍
+
+[reference/](README.md#这组文档怎么分) 三篇调研收拢成一张表,核心结论:**采集路径决定字段上限**——你从哪拿数据,决定了你最多能知道什么。
+
+| 路线 | 采集路径 | 字段上限 | 前提 | 代价 |
+|---|---|---|---|---|
+| [eve](reference/eve-protocol.md) | **无采集**——运行时原生吐协议(NDJSON over HTTP,带版本号) | 最高:26 种事件、`sequence/turnId/stepIndex` 坐标、per-step usage、`RuntimeIdentity` 自报模型 | **拥有运行时** | 只能评自己 |
+| [agent-eval](reference/agent-eval.md) | 磁盘旁读(claude-code)+ stdout 捕获(codex),另开第二通道读磁盘抠实际模型;无 trace | 最小公分母:5 种事件、无 callId(顺序配对)、丢 turn/step 边界 | 无(逆向黑盒) | 每个 CLI 一堆 hack,并发配对会错 |
+| [OTel GenAI](reference/otel-genai.md) | OTLP 网络推送(agent 自己 instrument) | span 树带时间与层级;但消息内容 / 工具入参 **opt-in**,常缺 | agent 愿意发、发得对 | 断言最需要的内容字段恰恰不保证有 |
+
+## niceeval 的设计:双轨 × 四通道
+
+行为和时间分两轨,各自选通道;一个 agent 可以多通道并用,按"这份数据用来干什么"分别决定怎么采(agent-eval 的 codex 双通道教训):
+
+```text
+行为轨(StreamEvent[] —— 断言的唯一数据源,必须全量)
+  通道 0 · 进程内直构   remote agent:send 里直接把返回映射成事件,零采集(eve 式,保真上限)
+  通道 1 · 磁盘旁读     CLI 为自己 resume 写的侧写文件(claude-code transcript、bub tape)
+  通道 2 · stdout 捕获  CLI 的结构化输出 flag(codex --json)
+       ↘ 通道 1/2 统一收窄成 raw string → o11y/parsers/<agent>.ts(纯函数,可单测)
+
+时间轨(TraceSpan[] —— 瀑布图,允许缺)
+  通道 3 · OTLP 推送    agent 经 OpenTelemetry 推给运行器的本机接收器
+                        → o11y/otlp/mappers/<agent>.ts 归一 canonical GenAI semconv
+                        没有 OTel 输出的(claude-code)从 transcript 时间戳合成 span
+```
+
+两轨的容错要求不同,这是设计的关键不对称:**行为轨缺数据是契约问题**(负断言静默假通过,见[契约 · 负断言完整性规则](contract.md#负断言的完整性规则)),做不到就显式关能力位;**时间轨缺数据是降级**(view 少画一张瀑布图,断言不受影响)。
+
+## 采集矩阵:现状(与 `src/` 对齐)
+
+每行都是"这个字段从原始数据的哪里抠"——写新 parser 时照这个粒度补一行:
+
+| | claude-code | codex | bub |
+|---|---|---|---|
+| **行为轨通道** | 磁盘旁读 | stdout 捕获 | 磁盘旁读(tape) |
+| **原始位置** | `~/.claude/projects/<slug>/` 最新 `.jsonl`(`shared.captureLatestJsonl`) | `codex exec --json` 的 stdout(`shared.extractJsonlFromStdout`) | `~/.bub/tapes/<md5(ws)__md5(sess)>.jsonl` |
+| **行形状** | `{ type: "user"\|"assistant", message: { content: [...], usage } }`,content 混 text / tool_use / thinking 块 | 生命周期事件(`thread.*` / `turn.*` / `item.*` / `response.*`) | `{ kind: message\|tool_call\|event\|anchor, payload }` |
+| **callId 配对** | `tool_use.id` ↔ user 行里 `tool_result.tool_use_id`(显式,坑:工具结果包装成 user 消息) | `call_id` 显式 + FIFO 队列兜底(老式 `function_call_output` 无 id) | 与上一条 tool_call **按位对齐** + 合成 id 兜底 |
+| **usage** | assistant 行 `message.usage`(含 cache read) | 防御式多路径:`data/payload/item/turn/response.usage`,兼容 `input/output_tokens` 与 `prompt/completion_tokens` 两套命名 | `event(name=="run")` 的 `data.usage`(`prompt/completion_tokens`,**`cost` 直接有**) |
+| **session id(resume 用)** | transcript 首个 `sessionId` 字段(`shared.sessionIdFromClaudeTranscript`) | `thread.started.thread_id`(`shared.codexThreadId`) | tape 文件名含 session hash;adapter 自管 |
+| **实际模型** | transcript 行内有 | 网关场景要第二通道读 `~/.codex/sessions` 的 `turn_context.payload.model`(agent-eval 的做法;niceeval 未接,记为已知缺口) | tape 内 run 事件 |
+| **时间轨** | 无原生 OTel → transcript 时间戳合成 span | 原生 OTLP/JSON(`config.toml [otel]`,走 `tracing.configure`) | 原生 OTLP/protobuf(env-based `OTEL_*`,走 `tracing.env`) |
+
+remote agent(通道 0)不在表里——它没有"采集",字段来源就是你自己代码里的返回值,见下节示例。
+
+## 接新被测对象的决策树
+
+```text
+你控制被测对象的运行时吗?
+├─ 是(自己的 agent / AI SDK / 进程内函数)
+│    → 通道 0:send 里直构 StreamEvent,保真上限最高(eve 级),见下面 AI SDK 示例
+└─ 否(黑盒 CLI / 别人的服务)
+     ├─ CLI 有结构化输出 flag(--json)?      → 通道 2:stdout 捕获
+     ├─ 没有,但 CLI 为 resume 写侧写文件?    → 通道 1:磁盘旁读(找它的 session 目录)
+     └─ 都没有                               → 老实做 T0:events 传 [],
+                                               显式关掉 toolObservability(别让负断言假通过)
+trace 另算:CLI 会发 OTel?→ 写 tracing 块 + mapper;不会 → transcript 时间戳合成,或直接跳过
+```
+
+字段找不到时的取舍,有先例可循:
+
+- **callId 缺失** → 按位 / FIFO 兜底(bub、codex 老格式的做法)——能用,但这是在赌"工具调用严格顺序",并发即错配;有显式 id 一定用显式 id。
+- **usage 缺失** → 不填,**别编数字**。后果是 `maxTokens` / `maxCost` 假通过(见契约),这比错误的成本数据可接受。
+- **实际模型拿不准**(网关改写)→ 学 agent-eval 开第二通道去磁盘 session 文件里读,别信请求参数。
+
+### 通道 0 示例:AI SDK 直构(接自己的 agent)
+
+AI SDK 的返回天生带显式 `toolCallId`、分 step、带 usage——映射几乎是逐字段抄写,这就是"控制运行时 = 保真上限"的含义(字段名按 AI SDK v5;v4 叫 `args` / `result` / `promptTokens`):
+
+```typescript
+// agents/my-ai-sdk-agent.ts
+import { defineAgent } from "niceeval/adapter";
+import { generateText } from "ai";
+
+export default defineAgent({
+  name: "my-ai-sdk-agent",
+  capabilities: { toolObservability: true },   // conversation 要自己攒 messages 才能声明
+  async send(input, ctx) {
+    const result = await generateText({
+      model: myModel(ctx.model), tools, prompt: input.text, abortSignal: ctx.signal,
+    });
+
+    const events: StreamEvent[] = [];
+    for (const step of result.steps) {
+      for (const c of step.toolCalls)
+        events.push({ type: "action.called", callId: c.toolCallId, name: c.toolName,
+                      input: c.input as JsonValue, tool: normalizeToolName(c.toolName) });
+      for (const r of step.toolResults)
+        events.push({ type: "action.result", callId: r.toolCallId,
+                      output: r.output as JsonValue, status: "completed" });
+      if (step.text) events.push({ type: "message", role: "assistant", text: step.text });
+    }
+    return {
+      events,
+      data: result.text,
+      status: "completed",
+      usage: { inputTokens: result.totalUsage.inputTokens ?? 0, outputTokens: result.totalUsage.outputTokens ?? 0 },
+    };
+  },
+});
+```
+
+对照矩阵读:`toolCallId` 直接就是 `callId`(不需要兜底),per-step usage 用 `totalUsage` 聚合(eve 按 step 记的粒度这里是可得而未取,见 [eve 笔记 · 启发 3](reference/eve-protocol.md#对-niceeval-适配器设计的启发)),时间轨可选接 AI SDK 的 `experimental_telemetry`(OTel spans → mapper,remote agent 也能有瀑布图)。
+
+自有 HTTP 服务同理走通道 0:协议是服务的私事,但如果服务是你写的,**让它直接返回 `StreamEvent` 兼容的 JSON 是最省的适配**——`toStreamEvents` 退化成透传。
+
+## 接新黑盒 CLI 的清单
+
+以"接 gemini-cli / opencode / 下一个"为例,照矩阵补一列的活:
+
+1. **选行为轨通道**:翻它的文档 / strace 找结构化输出 flag(通道 2);没有就找 `~/.<cli>/` 下的 session 侧写(通道 1)。
+2. **写 parser**(`o11y/parsers/<name>.ts`):纯函数只吃 `raw: string`;逐行 try/catch;按[契约 · 事件流三条纪律](contract.md#标准事件流)产事件(时序、callId、双名字);usage 学 codex 的防御式多路径。
+3. **抠 session id**:resume 要用;学 `shared.firstJsonField` 的通用兜底。
+4. **时间轨**:CLI 有 OTel 配置就写 `tracing` 块 + mapper;没有先跳过(降级不崩)。
+5. **对照矩阵自查字段**:callId 显式吗?usage 哪套命名?实际模型在哪?——每格都该能回答"从哪抠",答不上的格子显式记为缺口(像上表 codex 实际模型那格)。
+
+## 相关阅读
+
+- [Adapter 契约](contract.md) —— 采集的目标形状与逐断言数据义务。
+- [Adapter 写法](authoring.md) —— 采集纪律、分档、shared 工具袋。
+- [reference/](reference/agent-eval.md) —— 三条路线的原始调研(agent-eval / OTel GenAI / eve)。
+- [Observability](../observability.md) —— parser 与 mapper 在 o11y 管线里的位置。

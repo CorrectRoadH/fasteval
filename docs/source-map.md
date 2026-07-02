@@ -15,13 +15,15 @@
 | `defineEval` / `defineConfig` / `defineExperiment` / `defineAgent` / `defineSandboxAgent` / `defineSandbox` | `src/define.ts` |
 | `requireEnv` / 工具 | `src/util.ts` |
 
-## Agents 与 Adapters([adapters/README.md](adapters/README.md))
+## Agents 与 Adapters([adapters/contract.md](adapters/contract.md) / [adapters/authoring.md](adapters/authoring.md))
 
 | 行为 | 文件 |
 |---|---|
 | Agent 契约 / 能力位 / 三类配置归属 | `src/types.ts`(`Agent` / `AgentContext` / `AgentCapabilities`) |
-| `defineSandboxAgent` / `defineAgent` | `src/define.ts` |
+| 逐 API 适配义务(send / newSession / respond 的运行器侧翻译) | `src/context/session.ts`(`SessionManager` / `RunSession`)、`src/context/context.ts` |
+| `defineSandboxAgent` / `defineAgent`(能力位默认值) | `src/define.ts` |
 | `shared` 工具袋(ensureInstalled / captureLatestJsonl / writeFile / extractJsonlFromStdout / codexThreadId / firstJsonField / parseCodex·parseClaudeCode·parseBub) | `src/agents/shared.ts` |
+| 采集矩阵(collection.md:每 agent 的通道 / 字段来源) | `src/agents/{claude-code,codex,bub}.ts`(采集)+ `src/o11y/parsers/*.ts`(字段提取) |
 | 内置 adapter(claude-code / codex / bub) | **由被测项目自带**(`agents/*.ts`),niceeval 提供 `shared` + 解析器 |
 
 ## Coding Agent Skills / Plugins DX([adapters/coding-agent-skills-plugins.md](adapters/coding-agent-skills-plugins.md))

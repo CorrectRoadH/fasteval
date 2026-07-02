@@ -28,7 +28,9 @@
 
 **Adapter** / **适配器** —— 某个 [Agent](#agent) 的具体实现,**由用户编写**(niceeval 也内置几个常用 coding agent 的 adapter)。一个 Adapter 实现一个 Agent:进程内型直接调你的函数,远程型按你服务的协议发请求,沙箱型则拥有该 agent 的 CLI 参数、认证方式、默认模型、transcript 位置等全部特殊性。接新 agent = 加一个 Adapter,不动核心。同一个 agent 可有多个变体(如直连 API vs 经网关)。
 
-**Sandbox** / **沙箱** —— 封装"在哪里、如何隔离地跑命令"的对象。统一接口:`runCommand` / `readFile` / `writeFiles` / `uploadDirectory` / `stop`。实现包括 Docker、Vercel Sandbox、其它三方。命令工作目录通过 `runCommand` / `runShell` 的 `cwd` option 表达,不提供可变的 working directory。
+**Sandbox** / **沙箱** —— 封装"在哪里、如何隔离地跑命令"的对象。统一接口:`workdir` / `runCommand` / `readFile` / `writeFiles` / `uploadDirectory` / `stop`。实现包括 Docker、Vercel Sandbox、其它三方。命令工作目录通过 `runCommand` / `runShell` 的 `cwd` option 表达,不提供可变的 working directory。
+
+**workdir** —— 沙箱内 agent 的默认工作目录,也是 git 基线和 diff 采集的锚点;绝对值随后端不同(docker `/home/sandbox/workspace`、e2b `/home/user/workspace`、vercel `/vercel/sandbox`)。API 里所有沙箱侧相对路径、省略的 `targetDir` / `cwd` 都解析到它;eval 作者用相对路径写完整条 eval,必须要绝对路径时读 `t.sandbox.workdir`。详见 [Sandbox · 路径与 workdir](sandbox.md#路径与-workdir一个坐标系)。
 
 **Sandbox author API** / **沙箱作者 API** —— 沙箱型 eval 里暴露给 `test(t)` 的 `t.sandbox`。它分三类:文件 IO(`writeFiles` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。沙箱生命周期由 runner 管,`stop()` 不暴露给 eval 作者。
 
@@ -93,7 +95,7 @@ agent 不在 config 里注册:每个 experiment 直接引用一个 agent adapter
 
 **Strict mode** / **严格模式** —— 默认情况下 soft 断言低于阈值仍判 `passed`;`--strict` 下同样的情况改判 `failed`。用于 CI 把质量回归当成红灯。
 
-**环境预置** —— niceeval 把准备逻辑放在普通代码里。要在跑 agent 前准备环境,放三处之一:这条 eval 的沙箱预置写在 `test(t)` 里(手工 `t.sandbox.writeFiles` / `runCommand`),连 agent / 装 CLI 写在 [`SandboxAgent.setup`](adapters/README.md#sandboxagent-契约),整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。详见 [Sandbox · 环境预置放哪](sandbox.md#环境预置放哪)。
+**环境预置** —— niceeval 把准备逻辑放在普通代码里。要在跑 agent 前准备环境,放三处之一:这条 eval 的沙箱预置写在 `test(t)` 里(手工 `t.sandbox.writeFiles` / `runCommand`),连 agent / 装 CLI 写在 [`SandboxAgent.setup`](adapters/contract.md#agent-契约),整轮共享的外部服务(mock API、DB)用外部编排(`docker compose` / CI 脚本)起停、经 env 传入。详见 [Sandbox · 环境预置放哪](sandbox.md#环境预置放哪)。
 
 ## 相关阅读
 

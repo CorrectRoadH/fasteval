@@ -31,7 +31,7 @@
 | `await t.send(input)` | 给 agent 发一轮输入并等待稳定 | `input` 可以是字符串或结构化消息;返回 `turn` |
 | `await t.sendFile(path, text?)` | 给 agent 发带本地文件的一轮输入 | 文件按 `path`(相对项目根)读取,作为 data URL 附加;`text` 是可选的配文文字;MIME 类型按扩展名推断,暂不支持显式覆盖 |
 | `t.requireInputRequest(filter?)` | 断言恰好有一个待处理输入请求,并返回它 | gate;filter 可匹配工具名、action input、prompt、display、option ids |
-| `await t.respond(...responses)` | 回答指定待处理输入请求 | 每个 response 形如 `{ request, optionId }`;响应会作为下一轮发送 |
+| `await t.respond(...responses)` | 回答待处理输入请求 | 每个 response 是字符串(option id 或自由文本);多个用换行拼接,作为下一轮发送 |
 | `await t.respondAll(optionId)` | 用同一 option 回答所有待处理输入请求 | 响应会作为下一轮发送 |
 | `t.newSession()` | 开一条独立会话线 | 返回 `session`;事件仍汇入 `t.*` run 级断言 |
 | `session.send(input)` | 给独立 session 发一轮输入 | 返回 `turn`;不影响主 session 的 resume 状态 |
@@ -208,21 +208,21 @@ export default defineEval({
 
 | API | 作用 | 路径 / 目标 |
 |---|---|---|
-| `t.sandbox.writeFiles(files, targetDir)` | 写入文本文件清单 | `targetDir` 是 sandbox 内目标目录;key 是相对 `targetDir` 的路径 |
-| `t.sandbox.uploadFiles(files, targetDir)` | 写入文本 / 二进制文件清单 | `targetDir` 是 sandbox 内目标目录;每个文件的 `path` 是相对 `targetDir` 的路径 |
-| `t.sandbox.uploadDirectory(localDir, targetDir, opts?)` | 递归上传宿主机目录 | `localDir` 是本地目录;`targetDir` 是 sandbox 内目标目录,推荐 `/workspace` |
-| `t.sandbox.readFile(path)` | 读取 sandbox 文件 | `path` 是 sandbox 内路径;相对路径按 `/workspace` 解析 |
-| `t.sandbox.fileExists(path)` | 判断 sandbox 文件是否存在 | `path` 是 sandbox 内路径;相对路径按 `/workspace` 解析 |
-| `t.sandbox.readSourceFiles(root?)` | 批量读取源码文件 | `root` 是 sandbox 内目录;默认 `/workspace` |
+| `t.sandbox.writeFiles(files, targetDir?)` | 写入文本文件清单 | `targetDir` 省略 → workdir;key 是相对 `targetDir` 的路径 |
+| `t.sandbox.uploadFiles(files, targetDir?)` | 写入文本 / 二进制文件清单 | `targetDir` 省略 → workdir;每个文件的 `path` 是相对 `targetDir` 的路径 |
+| `t.sandbox.uploadDirectory(localDir, targetDir?, opts?)` | 递归上传宿主机目录 | `localDir` 相对路径解析到 eval 文件所在目录;`targetDir` 省略 → workdir |
+| `t.sandbox.readFile(path)` | 读取 sandbox 文件 | 相对路径解析到 workdir |
+| `t.sandbox.fileExists(path)` | 判断 sandbox 文件是否存在 | 相对路径解析到 workdir |
+| `t.sandbox.readSourceFiles(root?)` | 批量读取源码文件 | `root` 省略 → workdir |
 
-文件 IO 不限制只能写某个目录:只要后端允许、权限允许,`targetDir` 可以是 sandbox 内任何可写目录。但文档和示例推荐把项目文件放在 `/workspace`,并把 `/workspace` 当成沙箱型 eval 的通用项目根目录。`writeFiles` / `uploadFiles` 的文件 key 不建议写绝对路径;目标目录用 `targetDir` 表达,文件 key 只表达该目标目录下的相对路径。这样 Docker、Vercel Sandbox、E2B 等后端的路径语义能保持一致。
+文件 IO 不限制只能写某个目录:只要后端允许、权限允许,`targetDir` 可以是 sandbox 内任何可写目录。但常规写法是**省略 `targetDir`**——它默认落到 workdir(agent 的工作目录,也是 git 基线和 diff 采集的锚点),而 workdir 的绝对值随后端不同(见 [Sandbox · 路径与 workdir](sandbox.md#路径与-workdir一个坐标系)),hardcode 任何一个后端的绝对路径都会让 eval 换后端就坏。`writeFiles` / `uploadFiles` 的文件 key 不写绝对路径;目标目录用 `targetDir` 表达,文件 key 只表达该目标目录下的相对路径。必须要绝对路径时(比如拼进 prompt)用 `t.sandbox.workdir`。
 
 ### Sandbox:命令执行
 
 | API | 作用 | 备注 |
 |---|---|---|
-| `t.sandbox.runCommand(cmd, args?, opts?)` | 执行命令并返回结果 | `opts.cwd` 控制工作目录;默认 `/workspace`;不自动评分 |
-| `t.sandbox.runShell(script, opts?)` | 执行 shell 脚本并返回结果 | `opts.cwd` 控制工作目录;默认 `/workspace`;不自动评分 |
+| `t.sandbox.runCommand(cmd, args?, opts?)` | 执行命令并返回结果 | `opts.cwd` 控制工作目录;省略 → workdir;不自动评分 |
+| `t.sandbox.runShell(script, opts?)` | 执行 shell 脚本并返回结果 | `opts.cwd` 控制工作目录;省略 → workdir;不自动评分 |
 
 `Sandbox.stop()` 是运行器生命周期职责,不暴露给 eval 作者。eval 只描述“测什么、怎么判分”,不负责销毁沙箱。
 
@@ -240,7 +240,7 @@ export default defineEval({
 
 | API | 作用 | 备注 |
 |---|---|---|
-| `t.sandbox.diff.get(path)` | 读取某文件 diff 内容 | `path` 建议写相对 `/workspace` 的项目路径 |
+| `t.sandbox.diff.get(path)` | 读取某文件 diff 内容 | `path` 写 workdir 相对的项目路径(git diff 产出的就是它) |
 | `t.sandbox.diff.isEmpty()` | diff 是否为空 | 值级断言材料 |
 | `t.sandbox.diff.matches(re)` | diff 是否命中正则 | 值级断言材料 |
 | `t.sandbox.file(path)` | 延迟读取 sandbox 文件 | `path` 是 sandbox 内路径;配 `t.check` 使用 |
@@ -321,7 +321,7 @@ t.judge.autoevals.closedQA("助手是否始终基于第一轮的图片作答?").
 ```typescript
 import { commandSucceeded, excludes } from "niceeval/expect";
 
-const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
+const test = await t.sandbox.runCommand("npm", ["test"]);
 
 t.check(test, commandSucceeded());
 t.check(test.stderr, excludes("TypeError"));
@@ -384,5 +384,5 @@ t.judge.autoevals.closedQA("语气是否礼貌").atLeast(0.7);   // soft 阈值
 
 - [Eval Authoring](eval-authoring.md) —— 怎么把这些 API 组织进单轮 / 多轮 / 数据集 / 沙箱型 eval。
 - [Scoring](scoring.md) —— 判决规则、judge 细节、效率 / 成本断言。
-- [Agents 与 Adapters](adapters/README.md) —— 断言读的标准事件流从哪来。
+- [Adapter 契约](adapters/contract.md) —— 断言读的标准事件流从哪来,以及每条断言对 adapter 的数据义务。
 - [Observability](observability.md) —— transcript / usage / cost 的数据来源。

@@ -64,7 +64,7 @@ defineEval({ judge: { model: "anthropic/claude-opus-4-8" }, async test(t) { ... 
 ```typescript
 import { commandSucceeded } from "niceeval/expect";
 
-const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
+const test = await t.sandbox.runCommand("npm", ["test"]);
 t.check(test, commandSucceeded());
 ```
 

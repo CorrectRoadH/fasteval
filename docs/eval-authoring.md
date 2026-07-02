@@ -220,13 +220,13 @@ export default defineExperiment({
 });
 ```
 
-常规运行时,agent 由 experiment 提供 —— 这让同一份 eval 能换着被测对象跑(本地 vs 部署、agent A vs agent B),同时运行配置可签入、可复现。怎么写一个 agent,详见 [Agents 与 Adapters](adapters/README.md)。
+常规运行时,agent 由 experiment 提供 —— 这让同一份 eval 能换着被测对象跑(本地 vs 部署、agent A vs agent B),同时运行配置可签入、可复现。怎么写一个 agent,详见 [Adapter 写法](adapters/authoring.md)。
 
 ## 沙箱型:手工把文件放进沙箱
 
 评一个 coding agent 时,eval 仍然是普通的 `defineEval`,只是多了沙箱能力:`test(t)` 里的 `t` 多出 `t.sandbox`(前提是 agent 声明了 sandbox capability;见 [Sandbox](sandbox.md))。
 
-**没有自动发现,也没有隐式拷贝**——起始文件只有一种方式:在 `test(t)` 里显式调用 `t.sandbox.writeFiles` / `t.sandbox.uploadFiles` / `t.sandbox.uploadDirectory` 写进沙箱。`t.sandbox` 是 eval 作者使用的沙箱 API,分三类:文件 IO(`writeFiles` / `uploadDirectory` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。文件从哪读、写到沙箱里哪个路径,全部是你写在 `test(t)` 里的普通代码——不存在"运行器悄悄拷贝一个目录"这种黑箱,你想放哪就写哪,不想放的就不写。推荐把项目根放在 `/workspace`;需要命令在项目根执行时,给 `runCommand` / `runShell` 传 `{ cwd: "/workspace" }`:
+**没有自动发现,也没有隐式拷贝**——起始文件只有一种方式:在 `test(t)` 里显式调用 `t.sandbox.writeFiles` / `t.sandbox.uploadFiles` / `t.sandbox.uploadDirectory` 写进沙箱。`t.sandbox` 是 eval 作者使用的沙箱 API,分三类:文件 IO(`writeFiles` / `uploadDirectory` / `readFile`)、命令执行(`runCommand` / `runShell`)和结果断言 / diff(`fileChanged` / `diff` / `file`)。文件从哪读、写到沙箱里哪个路径,全部是你写在 `test(t)` 里的普通代码——不存在"运行器悄悄拷贝一个目录"这种黑箱,你想放哪就写哪,不想放的就不写。路径全部用相对路径写:沙箱侧相对路径解析到 workdir(agent 的工作目录,也是 git 基线和 diff 采集的锚点),省略 `targetDir` / `cwd` 就是它;不要 hardcode 某个后端的绝对路径,详见 [Sandbox · 路径与 workdir](sandbox.md#路径与-workdir一个坐标系):
 
 ```typescript
 // evals/refactor.eval.ts
@@ -237,13 +237,12 @@ import { readFileSync } from "node:fs";
 export default defineEval({
   description: "把回调改写成 async/await",
   async test(t) {
-    await t.sandbox.writeFiles(
-      { "src/legacy.js": readFileSync("fixtures/legacy-callbacks/legacy.js", "utf-8") },
-      "/workspace",
-    );
+    await t.sandbox.writeFiles({
+      "src/legacy.js": readFileSync("fixtures/legacy-callbacks/legacy.js", "utf-8"),
+    });
 
     await t.send("把 src/legacy.js 里的回调全部改写成 async/await,保持行为不变。");
-    const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
+    const test = await t.sandbox.runCommand("npm", ["test"]);
 
     t.sandbox.fileChanged("src/legacy.js");
     t.check(t.sandbox.diff.get("src/legacy.js"), includes("await"));
@@ -252,13 +251,13 @@ export default defineEval({
 });
 ```
 
-**要放一整个文件夹**(比如带 `package.json` + 多个源文件的起始项目),用 `uploadDirectory(localDir, targetDir)`。第一个参数是宿主机上的本地目录,第二个参数是 sandbox 内目标目录。推荐把完整起始项目上传到 `/workspace`:
+**要放一整个文件夹**(比如带 `package.json` + 多个源文件的起始项目),用 `uploadDirectory(localDir, targetDir?)`。第一个参数是宿主机上的本地目录(相对路径解析到 eval 定义文件所在目录);第二个参数是 sandbox 内目标目录,省略就是 workdir——上传完整起始项目时就该省略:
 
 ```typescript
 export default defineEval({
   description: "实现 Button 组件",
   async test(t) {
-    await t.sandbox.uploadDirectory("fixtures/button-starter", "/workspace");
+    await t.sandbox.uploadDirectory("fixtures/button-starter");
 
     await t.send("在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop。");
     // ...
@@ -277,9 +276,9 @@ export default rows.map((row) =>
   defineEval({
     description: `写入 ${row.file}`,
     async test(t) {
-      await t.sandbox.writeFiles({ [row.file]: row.content }, "/workspace");
+      await t.sandbox.writeFiles({ [row.file]: row.content });
       await t.send(`审查 ${row.file}`);
-      const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
+      const test = await t.sandbox.runCommand("npm", ["test"]);
       t.check(test, commandSucceeded());
     },
   }),
@@ -292,12 +291,12 @@ export default rows.map((row) =>
 export default defineEval({
   description: "实现 Button 组件",
   async test(t) {
-    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON }, "/workspace");
+    await t.sandbox.writeFiles({ "package.json": PACKAGE_JSON });
     await t.send("在 src/components/Button.tsx 导出一个 Button 组件,接受 label 和 onClick 两个 prop。");
 
     // agent 跑完之后才放测试文件、才跑测试——全程手工可见,没有隐藏逻辑
-    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST_SOURCE }, "/workspace");
-    const test = await t.sandbox.runCommand("npm", ["test"], { cwd: "/workspace" });
+    await t.sandbox.writeFiles({ "button.test.ts": BUTTON_TEST_SOURCE });
+    const test = await t.sandbox.runCommand("npm", ["test"]);
     t.check(test, commandSucceeded());
   },
 });

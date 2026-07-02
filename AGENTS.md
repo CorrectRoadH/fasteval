@@ -16,8 +16,14 @@ niceeval 是一个 TypeScript evals 库。CLI 入口在 `bin/niceeval.mjs`，运
 - `docs/eval-authoring.md`：如何编写 eval。
 - `docs/assertions.md`：断言参考——每条断言的作用、作用域(看哪一轮)和来源(eve.dev / Vercel agent-eval / crabbox / autoevals / niceeval 自创)。
 - `docs/scoring.md`：gate / soft、匹配器、judge、判决规则。
-- `docs/adapters/README.md`：如何接被测对象、如何写 agent adapter、分档能力表(send / 事件流 / 会话 / HITL / tracing)。
-- `docs/adapters/ref/agent-eval.md`：Vercel agent-eval 具体怎么写 adapter(采集/转换/落地、canonical tool name、暗号字段)——学习记录,不是 niceeval 的实现。
+- `docs/adapters/README.md`：Agents 与 Adapters 的定位与导航——Agent vs Adapter、为什么没有 `--url`、Agent × Sandbox 正交。
+- `docs/adapters/contract.md`：Adapter 契约参考——接口与能力位、标准事件流词汇、逐 `t` API 的适配义务(eval 调什么 ↔ adapter 返回什么 ↔ 违约怎么暴露)、HITL 握手、三类配置归属。
+- `docs/adapters/authoring.md`：怎么写一个 adapter——分档递进(T0 收发 / T1 事件流 / T2 会话 / HITL / T3 tracing)、remote 与 sandbox 参考实现、采集层、`shared` 工具袋。
+- `docs/adapters/collection.md`：采集设计——三条外部路线(eve 自产协议 / agent-eval 逆向 / OTel 遥测)对比、双轨四通道、claude-code / codex / bub / AI SDK 逐字段采集矩阵、接新被测对象的决策树。
+- `docs/adapters/coding-agent-skills-plugins.md`：沙箱型 coding agent 怎么装 skill / plugin 并组织 A/B 实验。
+- `docs/adapters/reference/agent-eval.md`：Vercel agent-eval 具体怎么写 adapter(采集/转换/落地、canonical tool name、暗号字段)——学习记录,不是 niceeval 的实现。
+- `docs/adapters/reference/otel-genai.md`：「agent 行为怎么记」的标准调研——OTel GenAI semconv 对比 agent-eval 自定义方案,附 OpenInference / OpenLLMetry / OpenAI Agents SDK / AG-UI / Langfuse 对照。
+- `docs/adapters/reference/eve-protocol.md`：eve 的协议机制——运行时原生事件流(26 种事件、sequence/turnId/stepIndex 坐标、requestId 定位回答、RuntimeIdentity 自报身份),niceeval StreamEvent 演进的上限参照。
 - `docs/sandbox.md`：沙箱接口和 Docker / 三方后端边界。
 - `docs/runner.md`：发现、调度、并发、缓存、attempt 编排。
 - `docs/experiments.md`：实验矩阵、可对比组、`niceeval exp`。
